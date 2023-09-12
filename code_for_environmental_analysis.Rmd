@@ -1,0 +1,1239 @@
+---
+title: "scripts_for_env_analysis_040423"
+author: "Omy Ogbughalu"
+date: "2023-04-04"
+output: html_document
+---
+
+
+load libraries for environmental variable analysis
+
+```{r}
+library(tidyverse) 
+library(rstatix) 
+library(ggplot2)
+library(ggpubr) 
+library(dplyr) 
+library(tidyr)
+library(ggsci)
+library(ggforce)
+library(ggrepel)
+library(readxl) 
+library(readr) 
+library(caret) 
+```
+
+
+load libraries for db-RDA analysis
+```{r}
+library(qiime2R)
+library(phyloseq) 
+library(readr)
+library(tcltk) 
+library(BiodiversityR) 
+library(poppr) 
+library(ggplot2)
+library(ggsci)
+library(ggforce)
+library(dplyr)
+library(ggrepel)
+library(tidyverse)
+```
+
+
+import files 
+
+```{r}
+# water data file with region column removed 
+water_biogeochem <- read.csv(
+  "~/Desktop/watershed\ health\ physico-chem\ data/water_physico_biogchem_withoutRegion_data_R.csv",
+  header=TRUE, sep = ",") 
+
+# sed-water 
+seds_biogeochem <- read.csv(
+  "~/Desktop/watershed\ health\ physico-chem\ data/seds_physico_biogchem_withoutRegion_data_R.csv",
+  header=TRUE, sep = ",")
+
+
+glimpse(water_biogeochem)
+glimpse(seds_biogeochem) 
+
+str(water_biogeochem)
+str(seds_biogeochem)
+```
+
+
+data organization and pre-treatment (env analysis)
+
+```{r}
+# data organisation - surface water variables  
+w_pH <- water_biogeochem$pH 
+w_Temp <- water_biogeochem$Temp
+w_DO <- water_biogeochem$DO
+w_turbidity <- water_biogeochem$Turbidity
+w_conductivity <- water_biogeochem$EC
+w_hardness <- water_biogeochem$Hardness
+w_TON <- water_biogeochem$TON
+w_ammonium <- water_biogeochem$Ammonium
+w_nitrate <- water_biogeochem$Nitrate
+w_TOC <- water_biogeochem$TOC
+w_DOC <- water_biogeochem$DOC
+w_phosphorus <- water_biogeochem$Phosphorus
+w_sodium <- water_biogeochem$Sodium
+w_magnesium <- water_biogeochem$Magnesium
+w_potasium <- water_biogeochem$Potassium
+w_calcium <- water_biogeochem$Calcium
+w_aluminium <- water_biogeochem$Aluminum
+w_silica <- water_biogeochem$Silica 
+
+# data organisation - sediments variables 
+s_TON <- seds_biogeochem$TON
+s_ammonium <- seds_biogeochem$Ammonium
+s_nitrate <- seds_biogeochem$Nitrate
+s_TOC <- seds_biogeochem$TOC
+s_DOC <- seds_biogeochem$DOC
+```
+
+
+surface water and sediments stats
+
+```{r}
+# SURFACE WATER
+# pH 
+w_pH_stat <- kruskal.test(pH ~ Region,
+                          data = water_biogeochem) 
+
+# comparison tests (Post-hoc tests): Dunn test
+library(FSA)
+
+dunnTest(pH ~ Region, data = water_biogeochem,
+         method = "holm")
+
+# trying a different FDR method
+dunnTest(pH ~ Region, data = water_biogeochem,
+         method = "bonferroni") 
+
+
+# temperature 
+w_temp_stat <- kruskal.test(Temp ~ Region,
+                          data = water_biogeochem) # p = 0.0009119
+dunnTest(Temp ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# DO 
+w_DO_stat <- kruskal.test(DO ~ Region,
+                          data = water_biogeochem) #p = 0.001846
+dunnTest(DO ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# EC 
+w_EC_stat <- kruskal.test(EC ~ Region,
+                          data = water_biogeochem) #p-value = 0.008929
+dunnTest(EC ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# TON 
+w_TON_stat <- kruskal.test(TON ~ Region,
+                          data = water_biogeochem) #p-value = 0.03128
+dunnTest(TON ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Ammonium 
+w_ammonium_stat <- kruskal.test(Ammonium ~ Region,
+                          data = water_biogeochem) #p-value = NA
+dunnTest(Ammonium ~ Region,
+         data = water_biogeochem, method = "holm") # NA
+
+# nitrate 
+w_nitrate_stat <- kruskal.test(Nitrate ~ Region,
+                           data = water_biogeochem) #p-value = 0.001178
+dunnTest(Nitrate ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# TOC 
+w_TOC_stat <- kruskal.test(TOC ~ Region,
+                           data = water_biogeochem) #p-value = 0.001459
+dunnTest(TOC ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# DOC 
+w_DOC_stat <- kruskal.test(DOC ~ Region,
+                           data = water_biogeochem) #p-value = 0.002376
+dunnTest(DOC ~ Region,
+         data = water_biogeochem, method = "holm") 
+
+# Phosphorus 
+w_phosphorus_stat <- kruskal.test(Phosphorus ~ Region,
+                           data = water_biogeochem) #p-value = 0.03855 
+dunnTest(Phosphorus ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Sodium 
+w_sodium_stat <- kruskal.test(Sodium ~ Region,
+                           data = water_biogeochem) #p-value = 0.001909 
+dunnTest(Sodium ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Magnesium 
+w_magnesium_stat <- kruskal.test(Magnesium ~ Region,
+                           data = water_biogeochem) #p-value = 0.001909 
+dunnTest(Magnesium ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Potassium 
+w_potassium_stat <- kruskal.test(Potassium ~ Region,
+                           data = water_biogeochem) #p-value = 0.00193 
+dunnTest(Potassium ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Calcium 
+w_calcium_stat <- kruskal.test(Calcium ~ Region,
+                           data = water_biogeochem) #p-value = 0.001909 
+dunnTest(Calcium ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Aluminum 
+w_aluminum_stat <- kruskal.test(Aluminum ~ Region,
+                           data = water_biogeochem) #p-value = 0.04101 
+dunnTest(Aluminum ~ Region,
+         data = water_biogeochem, method = "holm")
+
+# Silica 
+w_silica_stat <- kruskal.test(Silica ~ Region,
+                           data = water_biogeochem) #p-value = 0.002632 
+dunnTest(Silica ~ Region,
+         data = water_biogeochem, method = "holm")
+
+
+# SEDIMENTS 
+# TON 
+s_TON_stat <- kruskal.test(TON ~ Region,
+                            data = seds_biogeochem) # p = 0.004472
+dunnTest(TON ~ Region,
+         data = seds_biogeochem, method = "holm")
+
+# Ammonium 
+s_ammonium_stat <- kruskal.test(Ammonium ~ Region,
+                           data = seds_biogeochem) # p = 0.003354
+dunnTest(Ammonium ~ Region,
+         data = seds_biogeochem, method = "holm")
+
+# Nitrate 
+s_nitrate_stat <- kruskal.test(Nitrate ~ Region,
+                               data = seds_biogeochem) # p = 0.04281 
+dunnTest(Nitrate ~ Region,
+         data = seds_biogeochem, method = "holm")
+
+# TOC 
+s_TOC_stat <- kruskal.test(TOC ~ Region,
+                               data = seds_biogeochem) # p = 0.01069 
+dunnTest(TOC ~ Region,
+         data = seds_biogeochem, method = "holm")
+
+# DOC 
+s_DOC_stat <- kruskal.test(DOC ~ Region,
+                           data = seds_biogeochem) # p = 0.02141 
+dunnTest(DOC ~ Region,
+         data = seds_biogeochem, method = "holm")
+
+```
+
+
+# corr matrix
+
+```{r}
+# water 
+# subset data 
+w_US <- subset(water_biogeochem, Region == "USW") 
+w_US 
+w_MS <- subset(water_biogeochem, Region == "MSW")
+w_DS <- subset(water_biogeochem, Region == "DSW") 
+
+# drop columns that are "chr"
+w_US$Region <- NULL
+w_US 
+
+w_MS$Region <- NULL
+w_DS$Region <- NULL
+
+
+# use psych package to get pValues, size, etc
+library(psych) 
+
+# runn test and print matrix table
+
+# USW 
+corr.test(w_US, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+w_US_corr <- corr.test(w_US, method = "spearman")
+print(w_US_corr, short = FALSE)
+
+library(apaTables)
+
+apa.cor.table(w_US)
+
+# write to a word document 
+apa.cor.table(w_US,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_USwater.doc")
+
+
+# MSW 
+corr.test(w_MS, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+w_MS_corr <- corr.test(w_MS, method = "spearman")
+print(w_MS_corr, short = FALSE)
+
+apa.cor.table(w_MS)
+# write to a word document
+apa.cor.table(w_MS,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_MSwater.doc")
+
+
+# DSW 
+corr.test(w_DS, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+w_DS_corr <- corr.test(w_DS, method = "spearman")
+print(w_DS_corr, short = FALSE)
+
+apa.cor.table(w_DS) 
+# write to a word document
+apa.cor.table(w_DS,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_DSwater.doc")
+
+
+# sediments 
+# subset data 
+s_US <- subset(seds_biogeochem, Region == "USS") 
+s_US 
+s_MS <- subset(seds_biogeochem, Region == "MSS")
+s_DS <- subset(seds_biogeochem, Region == "DSS") 
+
+# drop columns that are "chr"
+s_US$Region <- NULL
+s_US 
+
+s_MS$Region <- NULL
+s_DS$Region <- NULL
+
+
+# USS
+corr.test(s_US, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+s_US_corr <- corr.test(s_US, method = "spearman")
+print(s_US_corr, short = FALSE)
+
+apa.cor.table(s_US)
+# write to a word document
+apa.cor.table(s_US,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_USseds.doc")
+
+
+# MSS
+corr.test(s_MS, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+s_MS_corr <- corr.test(s_MS, method = "spearman")
+print(s_MS_corr, short = FALSE)
+
+apa.cor.table(s_MS)
+# write to a word document
+apa.cor.table(s_MS,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_MSseds.doc")
+
+
+# DSS
+corr.test(s_DS, method = "spearman")
+
+# include the confidence intervals. First, create a new object
+s_DS_corr <- corr.test(s_DS, method = "spearman")
+print(s_DS_corr, short = FALSE)
+
+apa.cor.table(s_DS) 
+# write to a word document
+apa.cor.table(s_DS,
+              "~/Desktop/data-analysis-visualization/environ-microbes/output_final/APA_correlation_table_DSseds.doc")
+```
+
+
+
+# IMPORT FILES FOR DB-RDA ANALYSIS 
+
+```{r}
+### make sure that there are no columns/rows with all "0s"
+
+# Importing 16S ASVs file
+# for water-only RDA (with SVs of all sediments removed)
+SVs16Swater_raw <- read.csv("~/Desktop/bioinformatics/16S/final_filtered_16Sdada2_feature_WATER.csv",
+                            header=TRUE, sep = ",") 
+
+SVs16Swater<- read.csv("~/Desktop/bioinformatics/16S/final_filtered_16Sdada2_feature_WATER_final.csv",
+                       header=TRUE, sep = ",") # Excel formatted/edited file
+
+# for sediments-only RDA (with SVs of all water samples removed)
+SVs16Sseds_raw <- read.csv("~/Desktop/bioinformatics/16S/final_filtered_16Sdada2_feature_SEDIMENTS.csv",
+                            header=TRUE, sep = ",") 
+
+SVs16Sseds<- read.csv("~/Desktop/bioinformatics/16S/final_filtered_16Sdada2_feature_SEDIMENTS_final.csv",
+                       header=TRUE, sep = ",") # Excel formatted/edited file
+
+
+# Importing 18S ASVs file
+# for water-only RDA (with SVs of all sediments removed)
+SVs18Swater_raw <- read.csv("~/Desktop/bioinformatics/18S/final_filtered_Adada2_WATER.csv",
+                            header=TRUE, sep = ",") 
+
+SVs18Swater <- read.csv("~/Desktop/bioinformatics/18S/final_filtered_Adada2_WATER_final.csv",
+                        header=TRUE, sep = ",")
+
+
+# for sediments-only RDA (with SVs of all water removed)
+SVs18Sseds_raw <- read.csv("~/Desktop/bioinformatics/18S/final_filtered_Adada2_SEDIMENTS.csv",
+                            header=TRUE, sep = ",") 
+
+SVs18Sseds <- read.csv("~/Desktop/bioinformatics/18S/final_filtered_Adada2_SEDIMENTS_final.csv",
+                        header=TRUE, sep = ",")
+ 
+
+# Importing ITS2 ASVs file
+# for water-only RDA (with SVs of all sediments removed)
+SVsITSwater_raw <- read.csv("~/Desktop/bioinformatics/ITS/final_filtered_ITSdada2table_numbered_WATER.csv",
+                            header=TRUE, sep = ",") 
+
+SVsITSwater <- read.csv("~/Desktop/bioinformatics/ITS/final_filtered_ITSdada2table_numbered_WATER_final.csv",
+                        header=TRUE, sep = ",")
+
+
+# for sediments-only RDA (with SVs of all water removed)
+SVsITSseds_raw <- read.csv("~/Desktop/bioinformatics/ITS/final_filtered_ITSdada2table_SEDIMENTS.csv",
+                            header=TRUE, sep = ",") 
+
+SVsITSseds <- read.csv("~/Desktop/bioinformatics/ITS/final_filtered_ITSdada2table_SEDIMENTS_final.csv",
+                        header=TRUE, sep = ",")
+
+
+# Importing metadata (same for 16S, 18S and ITS2)
+# all water metadata (make sure rows follow the same format as bio-data)
+md_water <- read.csv("~/Desktop/bioinformatics/dbRDA_ALL/mapping_water_R.csv", 
+                     header=TRUE, sep = ",") 
+
+# all sediments metadata 
+# sample type - sediments=1, water=2 
+md_seds <- read.csv("~/Desktop/bioinformatics/dbRDA_ALL/mapping_sediments_R.csv", 
+                         header=TRUE, sep = ",")
+
+```
+
+
+# WATER AND SEDIMENTS 16S - RDA AND dbRDA 
+
+```{r}
+
+## refs  Legendre, P. and Legendre, L. (2012) and Braak, 1986.
+set.seed(11357)
+
+# decide which distance measure to use (the higher the value the better)
+rankindex(md_water, SVs16Swater, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+###    euc       man         gow       bra        kul 
+### 0.3902032  0.4986938  0.5465167  0.5813290   0.6099730 
+
+# checking with helinger transformed dataset
+rankindex(md_water, SVs16Swater.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+###       euc       man       gow       bra       kul 
+### 0.7745594  0.7075990   0.6627203  0.7036388  0.7045200 
+### euc is the highest, proceed with euc BrayCurtis (also suitable for
+### our fungal amplicons, so, maintain consistency in methods) 
+
+### use transformed data for ALL analysis
+
+
+rda_water16S = rda(SVs16Swater.hel ~ pH+Temperature+DO+
+                     Turbidity+Conductivity+Hardness+
+                     TON+Ammonium+Nitrate+
+                     TOC+DOC+Phosphorus+
+                     Sodium+Magnesium+Potassium+
+                     Calcium+Aluminium+Silica, md_water) 
+summary(rda_water16S) 
+
+# test for significance
+
+anova(rda_water16S) #overall test of the significance of the analysis
+output_water16S = anova(rda_water16S, by="terms", permu=1000) #term significance
+### Residual component returned "0" output 
+#split env data sets (max 10 variables per permutation)
+
+
+# plot RDA
+plot(rda_water16S)
+
+# running and plotting db-RDA 
+
+# using Euclidean distance matrix
+
+euc_water16S = vegdist(SVs16Swater.hel, 'euclidean') 
+dbRDAeuc_water16S = capscale(euc_water16S ~ pH+Temperature+DO+
+                               Turbidity+Conductivity+Hardness+
+                               TON+Ammonium+Nitrate+
+                               TOC+DOC+Phosphorus+
+                               Sodium+Magnesium+Potassium+
+                               Calcium+Aluminium+Silica, md_water) 
+summary(dbRDAeuc_water16S) 
+
+# plot dbRDA
+plot(dbRDAeuc_water16S)
+
+
+# re-run dbRDA using Bray-Curtis as it was higher from the test above
+# Compare the db-RDA on Euclidean distance and the standard RDA
+
+bc_water16S = vegdist(SVs16Swater.hel, 'bray') 
+dbRDAbc_water16S = capscale(bc_water16S ~ pH+Temperature+DO+
+                               Turbidity+Conductivity+Hardness+
+                               TON+Ammonium+Nitrate+
+                               TOC+DOC+Phosphorus+
+                               Sodium+Magnesium+Potassium+
+                               Calcium+Aluminium+Silica, md_water) 
+summary(dbRDAbc_water16S) 
+
+# plot dbRDA
+plot(dbRDAbc_water16S)
+
+
+# no visible difference from all three methods 
+# (standard RDA/eucl distance/bray-curtis distance) 
+# proceed and run the rest of the analaysis using bray-curtis method 
+
+bc_water16S = vegdist(SVs16Swater.hel, 'bray') 
+
+# set 1 = "physical variables"
+dbRDA_water16S_phy = capscale(bc_water16S ~ pH+Temperature+DO+
+                                Turbidity+Conductivity+Hardness+
+                                TON+Ammonium+Nitrate+
+                                TOC+DOC, data=md_water) 
+summary(dbRDA_water16S_phy)
+
+# plot bcdbRDA
+plot(dbRDA_water16S_phy) 
+
+# edit plot 
+
+#extract % explained by first 2 axes  
+perc_phy16S <- round(100*(summary(
+  dbRDA_water16S_phy)$cont$importance[2, 1:2]), 2) 
+
+# plot
+plot(dbRDA_water16S_phy, 
+     xlab = paste0("db-RDA1 (", perc_phy16S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_phy16S[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+# more plot edits 
+# Download and install ggvegan in R
+
+library(ggvegan)
+
+autoplot(dbRDA_water16S_phy, geom = "text",
+     xlab = paste0("db-RDA1 (", perc_phy16S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_phy16S[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+# set 2 = "elemental variables" 
+dbRDA_water16S_elm = capscale(bc_water16S ~ Phosphorus+
+                                Sodium+Magnesium+Potassium+
+                                Calcium+Aluminium+Silica, md_water)
+summary(dbRDA_water16S_elm) 
+
+# plot bcdbRDA
+plot(dbRDA_water16S_elm) 
+
+# edit plots
+
+#extract % explained by first 2 axes  
+perc_elm16S <- round(100*(summary(
+  dbRDA_water16S_elm)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_water16S_elm, 
+     xlab = paste0("db-RDA1 (", perc_elm16S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_elm16S[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) -> p2_16S
+
+# more plot edits
+autoplot(dbRDA_water16S_elm, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_elm16S[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_elm16S[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 16S
+anova(dbRDA_water16S_phy)
+anova(dbRDA_water16S_phy, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the set1 
+
+output2_water16S_phy = anova(dbRDA_water16S_phy, by="terms", permu=1000)
+vec2_water16S_phy = output2_water16S_phy$SumOfSqs / sum(output2_water16S_phy$SumOfSqs) *100
+table2_water16S_phy = output2_water16S_phy
+table2_water16S_phy$SumOfSqs = vec2_water16S_phy
+table2_water16S_phy 
+
+
+#  run significance testing on the db-RDA for water elements 
+# set2 16S
+
+anova(dbRDA_water16S_elm)
+anova(dbRDA_water16S_elm, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+#make the variance more pretty # now for the element variable set
+output2_water16S_elm = anova(dbRDA_water16S_elm, by="terms", permu=1000)
+vec2_water16S_elm = output2_water16S_elm$SumOfSqs / sum(output2_water16S_elm$SumOfSqs) *100
+table2_water16S_elm = output2_water16S_elm
+table2_water16S_elm$SumOfSqs = vec2_water16S_elm
+table2_water16S_elm 
+
+
+# SEDIMENTS 
+
+set.seed(11357)
+
+# checking with helinger transformed dataset
+rankindex(md_seds, SVs16Sseds.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+
+
+rda_seds16S = rda(SVs16Sseds.hel ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                       md_seds)
+summary(rda_seds16S)
+
+# method 2 
+rda_seds16S_opt2 = rda(SVs16Sseds.hel ~ ., data = md_seds)
+summary(rda_seds16S_opt2)
+
+# plot RDA
+plot(rda_seds16S) 
+
+# test for significance
+
+anova(rda_seds16S) #overall test of the significance of the analysis
+anova.cca(rda_seds16S) # global test of significance 
+output_seds16S = anova(rda_seds16S, 
+                            by="terms", permu=1000) #term significance
+
+#make the variance more pretty 
+vector_seds16S = output_seds16S$Variance / sum(output_seds16S$Variance) *100 
+table_seds16S = output_seds16S 
+table_seds16S$Variance = vector_seds16S 
+table_seds16S 
+
+
+# running and plotting db-RDA using bray-curtis matrix
+
+bc_seds16S = vegdist(SVs16Sseds.hel, 'bray') 
+
+dbRDA_seds16S = capscale(bc_seds16S ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                         md_seds) 
+summary(dbRDA_seds16S)
+
+# plot bcdbRDA 
+plot(dbRDA_seds16S) 
+
+# edit plots
+
+#extract % explained by first 2 axes  
+perc_seds16S <- round(100*(summary(
+  dbRDA_seds16S)$cont$importance[2, 1:2]), 2) 
+
+
+# plot 
+plot(dbRDA_seds16S, 
+     xlab = paste0("db-RDA1 (", perc_seds16S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_seds16S[2], "%)"),
+     scaling = 1,
+     frame = FALSE, 
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+# more plot edits
+autoplot(dbRDA_seds16S, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_seds16S[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_seds16S[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 16S
+anova(dbRDA_seds16S)
+anova(dbRDA_seds16S, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the physical variable set 
+
+output2_seds16S = anova(dbRDA_seds16S, by="terms", permu=1000)
+vec2_seds16S = output2_seds16S$SumOfSqs / sum(output2_seds16S$SumOfSqs) *100
+table2_seds16S = output2_seds16S
+table2_seds16S$SumOfSqs = vec2_seds16S
+table2_seds16S 
+
+```
+
+
+# WATER AND SEDIMENTS 18S - RDA AND dbRDA 
+
+```{r}
+set.seed(11357)
+
+# decide which distance measure to use (the higher the value the better)
+# checking with helinger transformed dataset
+rankindex(md_water, SVs18Swater.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+###       euc       man       gow       bra         kul 
+###  0.6490255   0.8526436  0.6314224  0.8422040  0.8394671 
+ 
+### man is the highest, proceed with euc BrayCurtis (pretty close
+### to man result and for methods consistency across different amplicons) 
+
+rda_water18S = rda(SVs18Swater.hel ~ pH+Temperature+DO+
+                     Turbidity+Conductivity+Hardness+
+                     TON+Ammonium+Nitrate+
+                     TOC+DOC+Phosphorus+
+                     Sodium+Magnesium+Potassium+
+                     Calcium+Aluminium+Silica, md_water) 
+summary(rda_water18S) 
+
+# test for significance
+# Permutation tests to access significance of constraints
+
+anova(rda_water18S) #overall test of the significance of the analysis
+output_water18S = anova(rda_water18S, by="terms", permu=1000) #term significance
+
+### NOTE: RESIDUAL output returning "0" is likely caused by inputting more
+### than 10 variables per permutation. So, split variables for stat tests
+
+#make the variance more pretty 
+vector_water18S = output_water18S$Variance / sum(output_water18S$Variance) *100 
+table_water18S = output_water18S 
+table_water18S$Variance = vector_water18S 
+table_water18S
+
+# plot RDA
+plot(rda_water18S)
+
+# proceed and run the rest of the analaysis using bray-curtis method 
+
+bc_water18S = vegdist(SVs18Swater.hel, 'bray') 
+
+# capscale function returns "residual" result as "0" if more than
+# 10 variables at once. So, split the env variables into 2 sets 
+
+# set 1 = "physical variables"
+dbRDA_water18S_phy = capscale(bc_water18S ~ pH+Temperature+DO+
+                                Turbidity+Conductivity+Hardness+
+                                TON+Ammonium+Nitrate+
+                                TOC+DOC, md_water) 
+summary(dbRDA_water18S_phy)
+
+
+# set 2 = "elemental variables" 
+dbRDA_water18S_elm = capscale(bc_water18S ~ Phosphorus+
+                                Sodium+Magnesium+Potassium+
+                                Calcium+Aluminium+Silica, md_water)
+summary(dbRDA_water18S_elm) 
+
+# plot bcdbRDA
+plot(dbRDA_water18S_phy) 
+
+# edit plot 
+
+#extract % explained by first 2 axes  
+perc_phy18S <- round(100*(summary(
+  dbRDA_water18S_phy)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_water18S_phy, 
+     xlab = paste0("db-RDA1 (", perc_phy18S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_phy18S[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+# more plot edits 
+autoplot(dbRDA_water18S_phy, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_phy18S[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_phy18S[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+# plot bc_db-RDA
+plot(dbRDA_water18S_elm) 
+
+# edit plots 
+#extract % explained by first 2 axes  
+perc_elm18S <- round(100*(summary(
+  dbRDA_water18S_elm)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_water18S_elm, 
+     xlab = paste0("db-RDA1 (", perc_elm18S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_elm18S[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+# more plot edits
+autoplot(dbRDA_water18S_elm, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_elm18S[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_elm18S[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 16S
+anova(dbRDA_water18S_phy)
+anova(dbRDA_water18S_phy, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the physical variable set 
+
+output2_water18S_phy = anova(dbRDA_water18S_phy, by="terms", permu=1000)
+vec2_water18S_phy = output2_water18S_phy$SumOfSqs / sum(output2_water18S_phy$SumOfSqs) *100
+table2_water18S_phy = output2_water18S_phy
+table2_water18S_phy$SumOfSqs = vec2_water18S_phy
+table2_water18S_phy 
+
+
+#  run significance testing on the db-RDA for water elements 
+# set2 16S
+
+anova(dbRDA_water18S_elm)
+anova(dbRDA_water18S_elm, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+#make the variance more pretty # now for the element variable set
+output2_water18S_elm = anova(dbRDA_water18S_elm, by="terms", permu=1000)
+vec2_water18S_elm = output2_water18S_elm$SumOfSqs / sum(output2_water18S_elm$SumOfSqs) *100
+table2_water18S_elm = output2_water18S_elm
+table2_water18S_elm$SumOfSqs = vec2_water18S_elm
+table2_water18S_elm 
+
+
+# SEDIMENTS 
+
+set.seed(11357)
+
+# checking with helinger transformed dataset
+rankindex(md_seds, SVs18Sseds.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+
+rda_seds18S = rda(SVs18Sseds.hel ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                  md_seds)
+summary(rda_seds18S)
+
+# plot RDA
+plot(rda_seds18S) 
+
+# test for significance
+
+anova(rda_seds18S) #overall test of the significance of the analysis
+output_seds18S = anova(rda_seds18S, 
+                       by="terms", permu=1000) #term significance
+
+#make the variance more pretty 
+vector_seds18S = output_seds18S$Variance / sum(output_seds18S$Variance) *100 
+table_seds18S = output_seds18S 
+table_seds18S$Variance = vector_seds18S 
+table_seds18S 
+
+
+# running and plotting db-RDA
+# using bray-curtis matrix
+
+bc_seds18S = vegdist(SVs18Sseds.hel, 'bray') 
+
+# set 1 = "physical variables"
+dbRDA_seds18S = capscale(bc_seds18S ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                         md_seds) 
+summary(dbRDA_seds18S)
+
+# plot bcdbRDA 
+plot(dbRDA_seds18S) 
+
+# edit plots
+
+#extract % explained by first 2 axes  
+perc_seds18S <- round(100*(summary(
+  dbRDA_seds18S)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_seds18S, 
+     xlab = paste0("db-RDA1 (", perc_seds18S[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_seds18S[2], "%)"),
+     scaling = 1,
+     frame = FALSE, 
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+# more plot edits
+autoplot(dbRDA_seds18S, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_seds18S[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_seds18S[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 18S
+anova(dbRDA_seds18S)
+anova(dbRDA_seds18S, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the physical variable set 
+
+output2_seds18S = anova(dbRDA_seds18S, by="terms", permu=1000)
+vec2_seds18S = output2_seds18S$SumOfSqs / sum(output2_seds18S$SumOfSqs) *100
+table2_seds18S = output2_seds18S
+table2_seds18S$SumOfSqs = vec2_seds18S
+table2_seds18S 
+
+```
+
+
+# WATER AND SEDIMENTS ITS2 - RDA AND dbRDA 
+```{r}
+# ITS2 
+set.seed(11357)
+
+# decide which distance measure to use (the higher the value the better)
+# checking with helinger transformed dataset
+rankindex(md_water, SVsITSwater.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+
+rda_waterITS = rda(SVsITSwater.hel ~ pH+Temperature+DO+
+                     Turbidity+Conductivity+Hardness+
+                     TON+Ammonium+Nitrate+
+                     TOC+DOC+Phosphorus+
+                     Sodium+Magnesium+Potassium+
+                     Calcium+Aluminium+Silica, md_water) 
+summary(rda_waterITS) 
+
+# test for significance
+
+anova(rda_waterITS) #overall test of the significance of the analysis
+output_waterITS = anova(rda_waterITS, by="terms", permu=1000) #term significance
+
+
+#make the variance more pretty 
+vector_waterITS = output_waterITS$Variance / sum(output_waterITS$Variance) *100 
+table_waterITS = output_waterITS 
+table_waterITS$Variance = vector_waterITS 
+table_waterITS
+
+# plot RDA
+plot(rda_waterITS)
+
+# proceed and run the rest of the analaysis using bray-curtis method 
+bc_waterITS = vegdist(SVsITSwater.hel, 'bray') 
+
+# set 1 = "physical variables"
+dbRDA_waterITS_phy = capscale(bc_waterITS ~ pH+Temperature+DO+
+                                Turbidity+Conductivity+Hardness+
+                                TON+Ammonium+Nitrate+
+                                TOC+DOC, md_water) 
+summary(dbRDA_waterITS_phy) 
+
+# set 2 = "elemental variables" 
+dbRDA_waterITS_elm = capscale(bc_waterITS ~ Phosphorus+
+                                Sodium+Magnesium+Potassium+
+                                Calcium+Aluminium+Silica, md_water)
+summary(dbRDA_waterITS_elm) 
+
+# plot bcdbRDA
+plot(dbRDA_waterITS_phy) 
+
+# edit plot 
+
+#extract % explained by first 2 axes  
+perc_phyITS <- round(100*(summary(
+  dbRDA_waterITS_phy)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_waterITS_phy, 
+     xlab = paste0("db-RDA1 (", perc_phyITS[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_phyITS[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+
+# more plot edits 
+autoplot(dbRDA_waterITS_phy, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_phyITS[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_phyITS[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+# plot bcdbRDA 
+plot(dbRDA_waterITS_elm) 
+
+# edit plots
+
+#extract % explained by first 2 axes  
+perc_elmITS <- round(100*(summary(
+  dbRDA_waterITS_elm)$cont$importance[2, 1:2]), 2) 
+
+# plot 
+plot(dbRDA_waterITS_elm, 
+     xlab = paste0("db-RDA1 (", perc_elmITS[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_elmITS[2], "%)"),
+     scaling = 1,
+     frame = FALSE,
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+
+# more plot edits
+autoplot(dbRDA_waterITS_elm, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_elmITS[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_elmITS[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 ITS
+anova(dbRDA_waterITS_phy)
+anova(dbRDA_waterITS_phy, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the physical variable set 
+
+output2_waterITS_phy = anova(dbRDA_waterITS_phy, by="terms", permu=1000)
+vec2_waterITS_phy = output2_waterITS_phy$SumOfSqs / sum(output2_waterITS_phy$SumOfSqs) *100
+table2_waterITS_phy = output2_waterITS_phy
+table2_waterITS_phy$SumOfSqs = vec2_waterITS_phy
+table2_waterITS_phy 
+
+
+#  run significance testing on the db-RDA for water elements 
+# set2 ITS
+
+anova(dbRDA_waterITS_elm)
+anova(dbRDA_waterITS_elm, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+#make the variance more pretty # now for the element variable set
+output2_waterITS_elm = anova(dbRDA_waterITS_elm, by="terms", permu=1000)
+vec2_waterITS_elm = output2_waterITS_elm$SumOfSqs / sum(output2_waterITS_elm$SumOfSqs) *100
+table2_waterITS_elm = output2_waterITS_elm
+table2_waterITS_elm$SumOfSqs = vec2_waterITS_elm
+table2_waterITS_elm 
+
+
+set.seed(11357)
+
+# checking with helinger transformed dataset
+rankindex(md_seds, SVsITSseds.hel, 
+          indices = c("euc", "man", "gow", "bra", "kul"),
+          stepacross= FALSE, 
+          method = "spearman")
+
+
+rda_sedsITS = rda(SVsITSseds.hel ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                  md_seds)
+summary(rda_sedsITS)
+
+# plot RDA
+plot(rda_sedsITS) 
+
+# test for significance
+
+anova(rda_sedsITS) #overall test of the significance of the analysis
+output_sedsITS = anova(rda_sedsITS, 
+                       by="terms", permu=1000) #term significance
+
+#make the variance more pretty 
+vector_sedsITS = output_sedsITS$Variance / sum(output_sedsITS$Variance) *100 
+table_sedsITS = output_sedsITS 
+table_sedsITS$Variance = vector_sedsITS 
+table_sedsITS 
+
+# running and plotting db-RDA
+# using bray-curtis matrix
+
+bc_sedsITS = vegdist(SVsITSseds.hel, 'bray') 
+
+# capscale function returns "residual" result as "0" if more than
+# 10 variables at once. So, split the env variables into 2 sets 
+
+# set 1 = "physical variables"
+dbRDA_sedsITS = capscale(bc_sedsITS ~ TON+Ammonium+Nitrate+TOC+DOC, 
+                         md_seds) 
+summary(dbRDA_sedsITS)
+
+# plot bcdbRDA 
+plot(dbRDA_sedsITS) 
+
+# edit plots
+
+#extract % explained by first 2 axes  
+perc_sedsITS <- round(100*(summary(
+  dbRDA_sedsITS)$cont$importance[2, 1:2]), 2) 
+
+
+# plot 
+plot(dbRDA_sedsITS, 
+     xlab = paste0("db-RDA1 (", perc_sedsITS[1], "%)"),
+     ylab = paste0("db-RDA2 (", perc_sedsITS[2], "%)"),
+     scaling = 1,
+     frame = FALSE, 
+     xlim = c(-1,1),
+     ylim = c(-1,1)) 
+
+
+# more plot edits
+autoplot(dbRDA_sedsITS, geom = "text",
+         xlab = paste0("db-RDA1 (", perc_sedsITS[1], "%)"),
+         ylab = paste0("db-RDA2 (", perc_sedsITS[2], "%)"),
+         scaling = 1,
+         frame = FALSE,
+         xlim = c(-1,1),
+         ylim = c(-1,1)) +
+  geom_abline(intercept = 0.0,slope = 0,linetype="dashed", size=0.8) +
+  geom_vline(aes(xintercept=0.0), linetype="dashed", size=0.8) +
+  theme(legend.position = "none",
+        axis.text = element_text(family = "Times",colour = "black",size = 20),
+        axis.title = element_text(family = "Times",color="black", size=20)) +
+  theme_bw(base_size = 14, base_rect_size = 1.5) 
+
+
+#  run significance testing on the db-RDA 
+# set1 16S
+anova(dbRDA_sedsITS)
+anova(dbRDA_sedsITS, 
+      by="terms", permu=1000) #test for sig. environ. variables
+
+# make the variance more pretty, then save anova output
+# first, for the physical variable set 
+
+output2_sedsITS = anova(dbRDA_sedsITS, by="terms", permu=1000)
+vec2_sedsITS = output2_sedsITS$SumOfSqs / sum(output2_sedsITS$SumOfSqs) *100
+table2_sedsITS = output2_sedsITS
+table2_sedsITS$SumOfSqs = vec2_sedsITS
+table2_sedsITS 
+
+```
+
+
+
+
+
+
+
+
+
+
+

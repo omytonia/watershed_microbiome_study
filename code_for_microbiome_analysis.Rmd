@@ -1,0 +1,2499 @@
+---
+title: "markdownscripts_for_microbiome_analysis"
+author: "Omy Ogbughalu"
+date: "2023-04-05"
+output: html_document
+---
+
+
+# load libraries
+```{r}
+# LOAD LIBRARIES -------------------------------------------------
+
+library(qiime2R)
+library(phyloseq)
+library(ggplot2)
+library(ggpubr)
+library (scales)
+library(tidyverse)
+library(viridis)
+library(car)
+library(rcompanion)
+library(FSA)
+library(vegan)
+library(ggh4x)
+library(BiocManager)
+library(BiocGenerics)
+
+library(DECIPHER)
+library(adespatial)
+library(ape)
+library(DESeq2)
+library(devtools)
+library(ggdendro)
+library(ggplot2)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+library(knitr)
+library(MicrobeR)
+library(microbiome)
+library(pander)
+library(philr)
+library(plotly)
+library(png)
+library(ranacapa)
+library(RColorBrewer)
+library(microbiomeutilities)
+library(preprocessCore)
+library(GO.db)
+library(impute)
+library(remotes)
+library(rjson)
+library(circlize)
+library(pheatmap)
+library(ComplexHeatmap)
+library(ggrepel)
+```
+
+
+# import files and create phyloseq objects
+```{r}
+# 16S ---------------------------------
+
+#  ASVs file
+SVs16S <- read_qza("~/Desktop/bioinformatics/16S/final_filtered_16Sdada2.qza")
+
+# metadata
+md16S <- read.table("~/Desktop/bioinformatics/16S/mapping_16S.tsv", sep='\t', 
+                    header=T)
+
+# tree
+tree16S <- read_qza("~/Desktop/bioinformatics/16S/rooted-tree.qza")
+
+# taxonomy
+taxtable_16S <- read_qza("~/Desktop/bioinformatics/16S/16S-taxonomy.qza")
+tax16S<-taxtable_16S$data %>% as_tibble() %>%mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species","Confidence")) 
+
+
+# phyloseq object
+ps16S <- phyloseq(
+  otu_table(SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()),
+  phy_tree(tree16S$data),
+  sample_data(md16S%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# Summarizing the phyloseq object to check for feature of data
+# check for features of data  
+summarize_phyloseq(ps16S)
+print_ps(ps16S)
+summary(sample_sums(ps16S))
+
+
+# Accessing the phyloseq object
+ntaxa(ps16S)
+nsamples(ps16S)
+sample_names(ps16S)[1:5]
+rank_names(ps16S) 
+sample_variables(ps16S)
+otu_table(ps16S)[1:5, 1:5]
+tax_table(ps16S)[1:5, 1:4]
+
+# save phyloseq as .csv file to be used for analysis such as, coocurrences 
+
+library(metagMisc)
+physeq16S <- psmelt(ps16S)
+
+write.csv(physeq16S,"~/Desktop/bioinformatics/16S/physeq_16SB.csv", 
+          row.names=TRUE)
+
+# already performed in Qiime2, but R command for rarecurve calculations:
+speccurve_16S <- specaccum(comm = SVs16S, method = "random", 
+                            permutations = 1000)
+plot(speccurve_16S)
+
+
+# Rarefy the phyloseq object to even depth to be used for some of the analysis
+ps16Srf <- rarefy_even_depth(ps16S, rngseed=1, 
+                             sample.size=0.9*min(sample_sums(ps16S)), replace=F)
+
+
+# 18S 
+
+# ASVs file
+SVs18S <- read_qza("~/Desktop/bioinformatics/18S/final_filtered_Adada2table.qza")
+
+# metadata
+md18S <- read.table("~/Desktop/bioinformatics/18S/mapping_18S.tsv", sep='\t', 
+                    header=T)
+
+# tree
+tree18S <- read_qza("~/Desktop/bioinformatics/18S/rooted-tree.qza")
+
+# taxonomy
+taxtable_18S <- read_qza("~/Desktop/bioinformatics/18S/A-taxonomy.qza") 
+tax18S<-taxtable_18S$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+
+# phyloseq object
+
+ps18S <- phyloseq(
+  otu_table(SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  phy_tree(tree18S$data),
+  sample_data(md18S%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# Rarefy the phyloseq object to even depth to be used for some of the analysis
+ps18Srf <- rarefy_even_depth(ps18S, rngseed=1, 
+                             sample.size=0.9*min(sample_sums(ps18S)), replace=F)
+
+
+# ITS2 
+
+# ASVs file
+SVsITS <- read_qza("~/Desktop/bioinformatics/ITS/final_filtered_ITSdada2table.qza")
+
+# metadata
+mdITS <- read.table("~/Desktop/bioinformatics/ITS/mapping_ITS.tsv", sep='\t', 
+                    header=T)
+
+# tree
+treeITS <- read_qza("~/Desktop/bioinformatics/ITS/rooted-tree.qza")
+
+# taxonomy
+taxtable_ITS <- read_qza("~/Desktop/bioinformatics/ITS/ITS-taxonomy.qza") 
+taxITS<-taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# phyloseq object
+psITS <- phyloseq(
+  otu_table(SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  phy_tree(treeITS$data),
+  sample_data(mdITS%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# removes singletons
+psITS <- prune_taxa(taxa_sums(psITS)>1, psITS)
+
+# filter/clean data
+
+psITS <- subset_taxa(psITS, Kingdom == "k__Fungi")
+psITS <- subset_taxa(psITS, Phylum != "p__unidentified")
+psITS <- subset_taxa(psITS, Phylum != "NA")
+
+# remove "unidentified" at Genus level. Make sure to create a new phyaeq
+
+psITS_Genus_unidentified_removed <- subset_taxa(
+  psITS, Genus != "g__unidentified") 
+
+# clean up tax table
+tax_table(psITS)[, colnames(tax_table(psITS))] <- gsub(tax_table(psITS)[, colnames(tax_table(psITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+# Rarefy the phyloseq object to even depth to be used for some of the analysis
+psITSrf <- rarefy_even_depth(psITS, rngseed=1, 
+                             sample.size=0.9*min(sample_sums(psITS)), replace=F)
+
+tax_table(psITSrf)[1:5, 1:4]
+```
+
+
+# compositional plots and relative abundances
+```{r} 
+
+# 16S
+# relative abundance at Phylum level   
+
+ps16S_phylum <- microbiome::aggregate_rare(ps16S, 
+                                           level = "Phylum", detection = 50/100, prevalence = 70/100)
+ps16S_phylum.rel <- microbiome::transform(ps16S_phylum, "compositional")
+
+ps16S_phylum.rel <- ps16S %>%
+  aggregate_rare(level = "Phylum", detection = 50/100, prevalence = 70/100) %>%
+  microbiome::transform(transform = "compositional")
+
+plot_composition(ps16S_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_brewer("Phylum", palette = "Set1") + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Bacterial & Archaeal relative abundance") + theme(legend.title = element_text(size = 18)) 
+
+# Define the number of colors you want
+nb.cols.phy16S <- 27  
+mycols_phy16S <- colorRampPalette(c("steelblue", "navyblue", 
+                                    "darkred", "pink", "violetred",
+                                    "darkgreen"))( 27) 
+
+# plot using scale_fill_manual
+plot_composition(ps16S_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_manual("Phylum", values = mycols_phy16S) + theme_bw() + 
+  theme(plot.title = element_text(size=24),
+    axis.text.x = element_text(angle = 90, size = 14, color = "black"),
+        axis.title.x = element_text(size = 24),
+        axis.text.y = element_text(angle = 90, size = 20, color = "black"),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  ggtitle("Bacterial & Archaeal Distribution") + 
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text(size = 16)) 
+
+
+# At Class level and relative abundance 
+ps_Class16S <- microbiome::aggregate_rare(ps16S, 
+                                       level = "Class", detection = 50/100, prevalence = 70/100)
+
+ps_Class16S.rel <- microbiome::transform(ps_Class16S, "compositional")
+
+ps_Class16S.rel <- ps16S %>%
+  aggregate_rare(level = "Class", detection = 50/100, prevalence = 70/100) %>%
+  microbiome::transform(transform = "compositional")
+
+plot_composition(ps_Class16S.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "top") + 
+  scale_fill_brewer("Class", palette = "Paired") + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Relative abundance") + theme(legend.title = element_text(size = 18))
+
+# Define the number of colors
+nb.cols_class <- 44 # 44 is from number of "class" from the plot above
+mycols_class <- colorRampPalette(brewer.pal(44, "Paired"))(nb.cols_class)
+
+plot_composition(ps_Class16S.rel,sample.sort = "Region", x.label = "id") + 
+  scale_fill_manual("Class", values = mycols_class) + theme_bw() + 
+  theme(plot.title = element_text(size=20),
+        axis.text.x = element_text(angle = 90, size = 14, color = "black"),
+        axis.title.x = element_text(size = 24),
+        axis.text.y = element_text(angle = 90, size = 18, color = "black"),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  ggtitle("Bacterial & Archaeal Distribution") + 
+  theme(legend.title = element_text(size = 20),
+        legend.text = element_text(size = 16)) +
+  theme(legend.position = "top") 
+
+
+# by environment/sample type 
+
+plot_composition(ps_Class16S.rel,sample.sort = "Type", x.label = "id") + 
+  scale_fill_manual("Class", values = mycols_class) + theme_bw() + 
+  theme(plot.title = element_text(size=20),
+        axis.text.x = element_text(angle = 90, size = 14, color = "black"),
+        axis.title.x = element_text(size = 24),
+        axis.text.y = element_text(angle = 90, size = 18, color = "black"),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  ggtitle("Bacterial & Archaeal Distribution") + 
+  theme(legend.title = element_text(size = 20),
+        legend.text = element_text(size = 16)) +
+  theme(legend.position = "top")
+
+
+# Heatmap using phyloseq obj without the "confidence" column
+# These are a good alternative to barplots.
+library(pheatmap)
+
+# all (top 50 taxa distribution) 
+ps16S_hm <- plot_taxa_heatmap(ps16S, 
+                              subset.top = 50, #top 50 taxa
+                              VariableA = c("Region","Type"),
+                              transformation = "log10",
+                              cluster_rows = F,
+                              cluster_cols = T,
+                              show_colnames = T,
+                              group.facet = "Region",
+                              fontsize_row = 18, 
+                              heatcolors = colorRampPalette(
+                                rev(brewer.pal(n = 7, name = "RdYlBu")))(100),) 
+
+
+# Plot relative abundance (percentages of the microbiome that are made up of a 
+# specific organism) of top (family) taxa
+
+mycols <- c("coral", "steelblue2", "slategray2", "olivedrab")
+
+plot_taxa_boxplot(ps16S,
+                  taxonomic.level = "Phylum",
+                  top.otu = 12, 
+                  group = "Region",
+                  add.violin= FALSE,
+                  title = "Top three family", 
+                  keep.other = FALSE,
+                  group.order = c("DSS","DSW","MSS", "MSW", "USS", "USW"),
+                  group.colors = mycols,
+                  dot.size = 2) + theme_biome_utils()
+
+# plot to specify taxa (of interests), using best hit function 
+# best_hit identifies the best available taxonomic identity and adds it 
+# to the OTU id or ASV id. If genus and species columns are present in 
+# input the function internally combines the names.
+
+ps16S.f <- format_to_besthit(ps16S) 
+
+top_taxa(ps16S.f, 10) #prints best hit top 10 taxa
+
+select.taxa_2_16S <- c("g__Flavobacterium", 
+                    "g__Flavobacterium",
+                    "g__Rhodoferax",
+                    "g__Flavobacterium",
+                    "g__Flavobacterium",
+                    "f__Burkholderiaceae",
+                    "g__Flavobacterium",
+                    "o__Betaproteobacteriales",
+                    "g__Acinetobacter",
+                    "g__Massilia")
+
+top10taxa_16S_abundance <- plot_listed_taxa(ps16S.f, select.taxa_2_16S, 
+                                            group= "Region",
+                                            group.order = c("dssed18S", "mssed18S", "usssed18S", 
+                                                            "dswater18S","mswater18S","uswater18S"),
+                                            group.colors = mycols,
+                                            add.violin = F,
+                                            dot.opacity = 0.25,
+                                            box.opacity = 0.25,
+                                            panel.arrange= "grid") + ylab("Relative abundance") + 
+  scale_y_continuous(labels = scales::percent)
+
+
+# for sample type
+toptaxa_16S_abundance_Type <- plot_listed_taxa(ps16S.f, select.taxa_2_16S, 
+                                               group= "Type",
+                                               group.order = c("dssed18S", "mssed18S", "usssed18S", 
+                                                               "dswater18S","mswater18S","uswater18S"),
+                                               group.colors = mycols,
+                                               add.violin = F,
+                                               dot.opacity = 0.25,
+                                               box.opacity = 0.25,
+                                               panel.arrange= "grid") + ylab("Relative abundance") + 
+  scale_y_continuous(labels = scales::percent)
+
+
+# Alternative with more control/options
+# at Class taxonomic level 
+
+# by region 
+ps16S_hm_class <- plot_heatmap(ps_Class16S.rel, method="PCoA", distance="bray", 
+                               taxa.label = "Class", sample.order = unique(sample_names(ps16S))) + 
+  facet_grid(~Region, scales = "free_x", drop = TRUE) + 
+  theme_bw() + theme(axis.text.x = element_text(face = "bold", angle = 90, hjust = 1)) + 
+  theme(legend.key = element_blank(),strip.background = element_rect(colour="black", fill="white"))
+
+# Make bacterial names italics
+ps16S_hm_class <- ps16S_hm_class + 
+  theme(axis.text.y = element_text(colour = 'black', size = 14, face = 'italic'),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.title.y = element_text(colour = 'black', size = 20),
+        axis.title.x = element_text(colour = 'black', size = 20),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16))
+        
+# Change the color palette
+ps16S_hm_class <- ps16S_hm_class + 
+  scale_fill_distiller("Abundance", palette = "RdYlBu")
+
+print(ps16S_hm_class)
+
+# Save plot directly using the "export" function or save using ggsave()
+ggsave("class_abundance_region_heatmap_16SB_A.png", ps16S_hm_class, 
+       width = 14, height = 10, dpi = 300) 
+
+
+# by sample type
+ps16S_hm_class_type <- plot_heatmap(ps_Class16S.rel, method="PCoA", distance="bray", 
+                                    taxa.label = "Class", sample.order = unique(sample_names(ps16S))) + 
+  facet_grid(~Type, scales = "free_x", drop = TRUE) + 
+  theme_bw() + theme(axis.text.x = element_text(face = "bold", angle = 90, hjust = 1)) + 
+  theme(legend.key = element_blank(),strip.background = element_rect(colour="black", fill="white"))
+
+# Make bacterial names italics
+ps16S_hm_class_type <- ps16S_hm_class_type + 
+  theme(axis.text.y = element_text(colour = 'black', size = 14, face = 'italic'),
+        axis.text.x = element_text(colour = 'black', size = 14),
+        axis.title.y = element_text(colour = 'black', size = 20),
+        axis.title.x = element_text(colour = 'black', size = 20),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16))
+
+# Change the color palette
+ps16S_hm_class_type <- ps16S_hm_class_type + 
+  scale_fill_distiller("Abundance", palette = "RdYlBu")
+
+print(ps16S_hm_class_type) 
+
+
+# 18S 
+# relative abundance at Phylum level   
+
+ps18S_phylum <- microbiome::aggregate_rare(ps18S, 
+                                           level = "Phylum", detection = 50/100, prevalence = 70/100)
+ps18S_phylum.rel <- microbiome::transform(ps18S_phylum, "compositional")
+
+ps18S_phylum.rel <- ps18S %>%
+  aggregate_rare(level = "Phylum", detection = 50/100, prevalence = 70/100) %>%
+  microbiome::transform(transform = "compositional")
+
+plot_composition(ps18S_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_brewer("Phylum", palette = "Set1") + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Algal relative abundance") + theme(legend.title = element_text(size = 18)) 
+
+# Define the number of colors you want
+nb.cols.phy18S <- 10 
+mycols_phy18S <- colorRampPalette(c("steelblue", "navyblue", 
+                                    "darkred", "pink"))( 10) 
+
+# Create a ggplot with 10 colors using scale_fill_manual
+plot_composition(ps18S_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_manual("Phylum", values = mycols_phy18S) + theme_bw() + 
+  theme(plot.title = element_text(size=24),
+        axis.text.x = element_text(angle = 90, size = 14, color = "black"),
+        axis.title.x = element_text(size = 24),
+        axis.text.y = element_text(angle = 90, size = 20,color="black"),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  ggtitle("Algal Distribution") + 
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text(size = 16)) 
+
+
+#ITS2 
+# relative abundance at Phylum level   
+
+psITS_phylum <- microbiome::aggregate_rare(psITS, 
+                                           level = "Phylum", detection = 50/100, prevalence = 70/100)
+psITS_phylum.rel <- microbiome::transform(psITS_phylum, "compositional")
+
+psITS_phylum.rel <- psITS %>%
+  aggregate_rare(level = "Phylum", detection = 50/100, prevalence = 70/100) %>%
+  microbiome::transform(transform = "compositional") 
+
+plot_composition(psITS_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_brewer("Phylum", palette = "Set1") + theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Fungal relative abundance") + theme(legend.title = element_text(size = 18)) 
+
+# Define the number of colors you want
+nb.cols.phyITS <- 7  
+mycols_phyITS <- colorRampPalette(c("steelblue", "navyblue", 
+                                    "darkred", "pink", "violetred",
+                                    "darkgreen"))( 7) 
+
+# plot using scale_fill_manual
+
+plot_composition(psITS_phylum.rel,sample.sort = "Region", x.label = "id") + 
+  theme(legend.position = "bottom") + 
+  scale_fill_manual("Phylum", values = mycols_phyITS) + theme_bw() + 
+  theme(plot.title = element_text(size=24),
+        axis.text.x = element_text(angle = 90, size = 14, color = "black"),
+        axis.title.x = element_text(size = 24),
+        axis.text.y = element_text(angle = 90, size = 20,color="black"),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  ggtitle("Fungal Distribution") + 
+  theme(legend.title = element_text(size = 24),
+        legend.text = element_text(size = 16)) 
+```
+
+
+# alpha diversty analysis 
+```{r} 
+
+# 16S ----------------------------------------------------
+
+# quick check 
+plot_richness(ps16Srf, x="Description", color="Region",
+              shape="Type", measures=c("Observed")) + geom_point(size=3) +
+  facet_wrap(~Region, scales="free_x", nrow=1)
+
+
+# add statistical test with ggpubr::stat_compare_means() 
+
+comps16S_region <- make_pairs(sample_data(ps16S.f)$Region)
+print(comps16S_region)
+
+comps16S_type <- make_pairs(sample_data(ps16S.f)$Type)
+print(comps16S_type)
+
+
+# calculate hill number diversity (calculate hill q=0) 
+library(ggplot2)
+library(hillR)
+library(data.table)
+library(cowplot)
+
+#convert phyloseq otu table to dataframe
+OTU16S <- t(as(ps16Srf@otu_table, "matrix"))
+OTU16S <- as.data.frame(OTU16S)
+
+#calculate hill q=0
+rich16S <- hill_taxa(OTU16S, q = 0)
+rich16S <- merge(ps16Srf@sam_data, rich16S, by = 0) 
+rich16S %>% rename(value = y)
+view(rich16S) 
+write.csv(rich16S, 
+          file = "~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/adiv_rich16S.csv")
+
+
+#calculate hill q=1
+shan16S <- hill_taxa(OTU16S, q = 1)
+shan16S <- merge(ps16Srf@sam_data, shan16S, by = 0)
+shan16S %>% rename(value = y)
+
+write.csv(shan16S, 
+          file = "~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/adiv_shan16S.csv")
+
+
+#calculate hill q=2
+invSimp16S <- hill_taxa(OTU16S, q = 2)
+invSimp16S <- merge(ps16Srf@sam_data, invSimp16S, by = 0)
+invSimp16S %>% rename(value = y)
+write.csv(invSimp16S, 
+          file = "~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/adiv_invSimp16S.csv")
+
+
+# 16S alpha diversity statistical analysis 
+set.seed(11357) 
+
+# confirm species accumulation curve (confirm if sampled enough/leveling out)
+speccurve16S <- specaccum(OTU16S, method = "random",
+                          permutations = 1000)
+plot(speccurve16S)
+
+
+# extract alpha diversity numbers/values
+rich16S_stats = estimate_richness(ps16Srf, measures = c("Observed", 
+                                                        "Shannon",
+                                                        "Simpson")) 
+
+# normality test
+
+shapiro.test(rich16S_stats$Observed)
+### Shapiro-Wilk normality test
+### data:  rich16S_stats$Observed
+### W = 0.86521, p-value = 0.001313 
+
+# confirm normality using result from Hill-number diversity method  
+shapiro.test(rich16S$y)
+### W = 0.86521, p-value = 0.001313 
+
+### significant. reject the null hypothesis and use non-parametric test
+
+
+# import exported and formated a-diversity file 
+
+# using (one-way) Kruskal-Wallis test and then interactive (two-way) Dunn's
+# test (alternative to one-way ANOVA and two-way/interactive ANOVA's 
+# parametric tests which assumes that data is normally distributed).
+
+# richness
+adiv_rich16S <- read.csv("~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/adiv_rich16S_for_R.csv")
+
+# quick check 
+boxplot(adiv_rich16S)
+
+# test for normality 
+shapiro.test(adiv_rich16S$DSS) #p-value = 0.9615
+shapiro.test(adiv_rich16S$DSW) #p-value = 0.5685 
+shapiro.test(adiv_rich16S$MSS) #p-value = 0.715
+shapiro.test(adiv_rich16S$MSW) #p-value = 0.0303
+shapiro.test(adiv_rich16S$USS) #p-value = 0.6906 
+shapiro.test(adiv_rich16S$USW) #p-value = 0.5636 
+
+# repeat one-way non-parametric ANOVA test using KW test 
+kw_adiv_rich16S <- kruskal.test(adiv_rich16S) 
+print(kw_adiv_rich16S)
+
+
+# richness-16S - microbe-environment interaction
+library(dunn.test)
+library(FSA)
+
+# add ranks to data
+adiv_rich16S_2 <- data.frame(adiv_rich16S,
+                    t(apply(adiv_rich16S, 1, rank, ties.method="average"))) 
+print(adiv_rich16S_2)
+
+# keep ranks only
+myTable_rich16S <- adiv_rich16S_2[,7:12]
+
+# program for Dunn's test 
+k=dim(myTable_rich16S)[2] 
+nf=length(myTable_rich16S[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_rich16S)[i],
+                                  "-", colnames(adiv_rich16S)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_rich16S[,j])-sum(myTable_rich16S[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+    }
+  }
+
+# stat result richness 16S
+result_rich16S <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_rich16S
+
+# save to csv 
+write.csv(result_rich16S,
+          file = "~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/result_rich16S.csv")
+
+
+# shannon
+
+# import exported and formated a-diversity file 
+adiv_shan16S <- read.csv("~//Desktop/data-analysis-visualization/watershed-health-16S/output_final/adiv_shannon16S_for_R.csv")
+
+# quick check 
+boxplot(adiv_shan16S)
+
+# test for normality 
+shapiro.test(adiv_shan16S$DSS) #p-value = 0.704
+shapiro.test(adiv_shan16S$DSW) #p-value = 0.7293 
+shapiro.test(adiv_shan16S$MSS) #p-value = 0.7681
+shapiro.test(adiv_shan16S$MSW) #p-value = 0.006349
+shapiro.test(adiv_shan16S$USS) #p-value = 0.8231 
+shapiro.test(adiv_shan16S$USW) #p-value = 0.6586 
+
+
+# KW test 
+kw_adiv_shan16S <- kruskal.test(adiv_shan16S) 
+
+print(kw_adiv_shan16S) #p = 0.0001685 
+### Significant. Proceed with Dunn's interactive tests
+
+
+# shannon-16S - microbe-environment interaction
+
+# add ranks to data
+adiv_shan16S_2 <- data.frame(adiv_shan16S,
+                             t(apply(adiv_shan16S, 1, rank, ties.method="average"))) 
+print(adiv_shan16S_2)
+
+# keep ranks only
+myTable_shan16S <- adiv_shan16S_2[,7:12]
+
+# program for Dunn's test 
+k=dim(myTable_shan16S)[2] 
+nf=length(myTable_shan16S[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_shan16S)[i],
+                                  "-", colnames(adiv_shan16S)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_shan16S[,j])-sum(myTable_shan16S[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+  }
+} 
+
+
+# stat result shannon 16S
+result_shan16S <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_shan16S 
+
+# save to csv 
+write.csv(result_shan16S,
+          file = "~/Desktop/data-analysis-visualization/watershed-health-16S/output_final/result_shan16S.csv")
+
+
+# 18S ----------------------------------------------------- 
+
+# quick check 
+plot_richness(ps18Srf, x="Description", color="Region",
+              shape="Type", measures=c("Observed")) + geom_point(size=3) +
+  facet_wrap(~Region, scales="free_x", nrow=1)
+
+comps18S <- make_pairs(sample_data(ps18S.f)$Region)
+print(comps18S)
+
+comps18S_Type <- make_pairs(sample_data(ps18S.f)$Type)
+print(comps18S_Type) 
+
+
+#convert phyloseq otu table to dataframe
+OTU18S <- t(as(ps18Srf@otu_table, "matrix"))
+OTU18S <- as.data.frame(OTU18S)
+
+#calculate hill q=0
+rich18S <- hill_taxa(OTU18S, q = 0)
+rich18S <- merge(ps18Srf@sam_data, rich18S, by = 0) 
+rich18S %>% rename(value = y)
+view(rich18S)
+
+#calculate hill q=1
+shan18S <- hill_taxa(OTU18S, q = 1)
+shan18S <- merge(ps18Srf@sam_data, shan18S, by = 0)
+shan18S %>% rename(value = y)
+
+#calculate hill q=2
+invSimp18S <- hill_taxa(OTU18S, q = 2)
+invSimp18S <- merge(ps18Srf@sam_data, invSimp18S, by = 0)
+invSimp18S %>% rename(value = y)
+
+
+# 18S alpha diversity statistical analysis 
+set.seed(11357)
+
+# first, generate species accumulation curve (check if sampled enough/leveling out)
+speccurve18S <- specaccum(OTU18S, method = "random",
+                          permutations = 1000)
+plot(speccurve18S)
+
+
+# extract numbers 
+rich18S_stats = estimate_richness(ps18Srf, measures = c("Observed", 
+                                                        "Shannon",
+                                                        "simpson")) 
+
+
+# normality test 
+shapiro.test(rich18S_stats$Observed) #p = 0.2456
+
+# normality test using result from Hill-number diversity method  
+shapiro.test(rich18S$y) #p = 0.2456
+
+# not significant. accept the null hypothesis. However, use 
+# non-parametric test, and maintain consistency across all domains
+
+
+# import exported and formated a-diversity file 
+# richness
+adiv_rich18S <- read.csv("~/Desktop/data-analysis-visualization/watershed-health_18S/output_final/adiv_rich18S_for_R.csv")
+
+# quick check 
+boxplot(adiv_rich18S)
+
+# test for normality (this time, individually)
+shapiro.test(adiv_rich18S$DSS) #p-value = 0.8973
+shapiro.test(adiv_rich18S$DSW) #p-value = 0.456 
+shapiro.test(adiv_rich18S$MSS) #p-value = 0.5228
+shapiro.test(adiv_rich18S$MSW) #p-value = 0.8489
+shapiro.test(adiv_rich18S$USS) #p-value = 0.1114 
+shapiro.test(adiv_rich18S$USW) #p-value = 0.07853 
+# 18S suitable for anova parametric test. However, use 
+# non-parametric for consistency across domains
+
+# KW test 
+kw_adiv_rich18S <- kruskal.test(adiv_rich18S) 
+
+print(kw_adiv_rich18S) #p = 0.003018
+
+
+# richness-18S - microbe-environment interaction
+
+adiv_rich18S_2 <- data.frame(adiv_rich18S,
+                             t(apply(adiv_rich18S, 1, rank, ties.method="average"))) 
+print(adiv_rich18S_2)
+
+myTable_rich18S <- adiv_rich18S_2[,7:12]
+
+# Dunn's test 
+k=dim(myTable_rich18S)[2] 
+nf=length(myTable_rich18S[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_rich18S)[i],
+                                  "-", colnames(adiv_rich18S)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_rich18S[,j])-sum(myTable_rich18S[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+  }
+}
+
+# stat result richness 18S 
+result_rich18S <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_rich18S
+
+# save to csv 
+write.csv(result_rich18S,
+          file = "~/Desktop/data-analysis-visualization/watershed-health_18S/output_final/result_rich18S.csv")
+
+
+# shannon 18S 
+
+# import exported and formated a-diversity file 
+adiv_shan18S <- read.csv("~/Desktop/data-analysis-visualization/watershed-health_18S/output_final/adiv_shan18S_for_R.csv")
+
+# quick check 
+boxplot(adiv_shan18S)
+
+# test for normality 
+shapiro.test(adiv_shan18S$DSS) #p-value = 0.1003
+shapiro.test(adiv_shan18S$DSW) #p-value = 0.637 
+shapiro.test(adiv_shan18S$MSS) #p-value = 0.5391
+shapiro.test(adiv_shan18S$MSW) #p-value = 0.5461
+shapiro.test(adiv_shan18S$USS) #p-value = 0.1517 
+shapiro.test(adiv_shan18S$USW) #p-value = 0.5331 
+
+# KW test 
+kw_adiv_shan18S <- kruskal.test(adiv_shan18S) 
+print(kw_adiv_shan18S) #p = 0.003642
+
+### Significant. Proceed with Dunn's interactive tests
+
+
+# shannon-18S - microbe-environment interaction
+adiv_shan18S_2 <- data.frame(adiv_shan18S,
+                             t(apply(adiv_shan18S, 1, rank, ties.method="average"))) 
+print(adiv_shan18S_2)
+
+myTable_shan18S <- adiv_shan18S_2[,7:12]
+
+# Dunn's test 
+k=dim(myTable_shan18S)[2] 
+nf=length(myTable_shan18S[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_shan18S)[i],
+                                  "-", colnames(adiv_shan18S)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_shan18S[,j])-sum(myTable_shan18S[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+  }
+}
+
+# stat results
+result_shan18S <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_shan18S 
+
+# save to csv 
+write.csv(result_shan18S,
+          file = "~/Desktop/data-analysis-visualization/watershed-health_18S/output_final/result_shan18S.csv")
+
+
+# ITS2 ----------------------------------------------------
+
+# quick check 
+plot_richness(psITSrf, x="Description", color="Region",
+              shape="Type", measures=c("Observed")) + geom_point(size=3) +
+  facet_wrap(~Region, scales="free_x", nrow=1)
+
+compsITS <- make_pairs(sample_data(psITS.f)$Region)
+print(compsITS)
+
+compsITS_Type <- make_pairs(sample_data(psITS.f)$Type)
+print(compsITS_Type) 
+
+#convert phyloseq otu table to dataframe
+OTUITS <- t(as(psITSrf@otu_table, "matrix"))
+OTUITS <- as.data.frame(OTUITS)
+
+#calculate hill q=0
+richITS <- hill_taxa(OTUITS, q = 0)
+richITS <- merge(psITSrf@sam_data, richITS, by = 0) 
+richITS %>% rename(value = y)
+view(richITS)
+
+#calculate hill q=1
+shanITS <- hill_taxa(OTUITS, q = 1)
+shanITS <- merge(psITSrf@sam_data, shanITS, by = 0)
+shanITS %>% rename(value = y)
+
+#calculate hill q=2
+invSimpITS <- hill_taxa(OTUITS, q = 2)
+invSimpITS <- merge(psITSrf@sam_data, invSimpITS, by = 0)
+invSimpITS %>% rename(value = y)
+
+
+# ITS alpha diversity statistical analysis 
+set.seed(11357)
+
+# first, generate species accumulation curve (check if sampled enough/leveling out)
+speccurveITS <- specaccum(OTUITS, method = "random",
+                          permutations = 1000)
+plot(speccurveITS) 
+
+# extract alpha div numbers/values 
+richITS_stats = estimate_richness(psITSrf, measures = c("Observed", 
+                                                        "Shannon",
+                                                        "simpson")) 
+
+# richness ITS - normality test 
+shapiro.test(richITS_stats$Observed) #p = 0.03023 
+
+# confirm normality using result from Hill-number diversity method  
+shapiro.test(richITS$y) #p = 0.03023
+
+###significant. Reject the null hypothesis. 
+
+
+# import exported and formated a-diversity file 
+# richness
+adiv_richITS <- read.csv("~/Desktop/data-analysis-visualization/watershed-health_ITS/output_final/adiv_richITS_for_R.csv")
+
+# quick check 
+boxplot(adiv_richITS)
+
+# test for normality 
+shapiro.test(adiv_richITS$DSS) #p-value = 0.7555
+shapiro.test(adiv_richITS$DSW) #p-value = 0.1589 
+shapiro.test(adiv_richITS$MSS) #p-value = 0.743
+shapiro.test(adiv_richITS$MSW) #p-value = 0.5773
+shapiro.test(adiv_richITS$USS) #p-value = 0.9367 
+shapiro.test(adiv_richITS$USW) #p-value = 0.6961 
+# ITS suitable for anova parametric test. However, use 
+# non-parametric for methods consistency across all domains
+
+# KW test 
+kw_adiv_richITS <- kruskal.test(adiv_richITS) 
+print(kw_adiv_richITS) #p = 0.002701
+
+### significant, proceed with Dunn's interactive tests
+
+
+# richness-ITS - microbe-environment interaction 
+adiv_richITS_2 <- data.frame(adiv_richITS,
+                             t(apply(adiv_richITS, 1, rank, ties.method="average"))) 
+print(adiv_richITS_2)
+
+myTable_richITS <- adiv_richITS_2[,7:12]
+
+# Dunn's test 
+k=dim(myTable_richITS)[2] 
+nf=length(myTable_richITS[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_richITS)[i],
+                                  "-", colnames(adiv_richITS)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_richITS[,j])-sum(myTable_richITS[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+  }
+}
+
+# stat result richness ITS
+result_richITS <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_richITS
+
+# save to csv 
+write.csv(result_richITS,
+          file = "~/Desktop/data-analysis-visualization/watershed-health_ITS/output_final/result_richITS.csv")
+
+
+# shannon ITS
+# import exported and formated a-diversity file 
+
+adiv_shanITS <- read.csv("~/Desktop/data-analysis-visualization/watershed-health_ITS/output_final/adiv_shanITS_for_R.csv")
+
+# quick check 
+boxplot(adiv_shanITS)
+
+# test for normality 
+shapiro.test(adiv_shanITS$DSS) #p-value = 0.691
+shapiro.test(adiv_shanITS$DSW) #p-value = 0.4605 
+shapiro.test(adiv_shanITS$MSS) #p-value = 0.02118
+shapiro.test(adiv_shanITS$MSW) #p-value = 0.7643
+shapiro.test(adiv_shanITS$USS) #p-value = 0.5549 
+shapiro.test(adiv_shanITS$USW) #p-value = 0.8971 
+# not suitable for anova parametric test (MSS P = 0.02). use 
+# non-parametric test and for consistency across domains
+
+
+# KW test 
+kw_adiv_shanITS <- kruskal.test(adiv_shanITS) 
+print(kw_adiv_shanITS) #p = 0.01725 
+### Significant. Proceed with Dunn's interactive tests
+
+
+# shannon-ITS - microbe-environment interaction 
+
+adiv_shanITS_2 <- data.frame(adiv_shanITS,
+                             t(apply(adiv_shanITS, 1, rank, ties.method="average"))) 
+print(adiv_shanITS_2)
+
+myTable_shanITS <- adiv_shanITS_2[,7:12]
+
+# Dunn's test 
+k=dim(myTable_shanITS)[2] 
+nf=length(myTable_shanITS[,1])
+SE <- sqrt((k*(k+1))/(6*nf))
+
+pair <- vector()
+TestStat <- vector("numeric")
+StdTestStat<- vector("numeric")
+sig<- vector("numeric")
+Adj.sig<- vector("numeric") 
+for (i in 1:(k-1)){
+  for (j in (i+1):k){ 
+    pair[length(pair)+1] <- paste(colnames(adiv_shanITS)[i],
+                                  "-", colnames(adiv_shanITS)[j])
+    TestStat[length(pair)+1] <- (sum(myTable_shanITS[,j])-sum(myTable_shanITS[,i]))/nf
+    StdTestStat[length(StdTestStat)+1] <- TestStat[length(TestStat)]/SE
+    sig[length(sig)+1] <- 2*(1-pnorm(abs(StdTestStat[length(StdTestStat)])))
+    if (sig[length(sig)]*k*(k-1)/2>1){Adj.sig[length(Adj.sig)+1] <- 1}
+    else {Adj.sig[length(Adj.sig)+1] <- round(sig[length(sig)]*k*(k-1)/2,
+                                              digits = 4)}
+  }
+}
+
+
+# stat result shannon ITS
+result_shanITS <- data.frame(pair,StdTestStat, sig, Adj.sig)
+
+result_shanITS 
+
+# save to csv 
+write.csv(result_shanITS,
+          file = "~/Desktop/data-analysis-visualization/watershed-health_ITS/output_final/result_shanITS.csv")
+
+```
+
+
+# beta-diversity 
+```{r}
+
+# 16S 
+
+# Make an ordination 
+pcoa_16S <- ordinate(
+  physeq = ps16S, 
+  method = "PCoA", 
+  distance = "bray"
+)
+
+plot_ordination(
+  physeq = ps16S,  #phyloseq object
+  ordination = pcoa_16S) + #ordination
+  geom_point(aes(fill = Region, shape = Type), 
+             size = 9) + 
+  scale_shape_manual(values = c(21, 22, 23))+
+  scale_fill_manual(values = mycols) +
+  theme_classic() + 
+  theme(                             
+    legend.text = element_text(size = 28), 
+    legend.title = element_blank(), 
+    legend.background = element_rect(fill = "white", 
+                                     color = "black"))+ 
+  theme(axis.text.y.left = element_text(size = 28),
+        axis.text.x = element_text(size = 28),
+        axis.title.x = element_text(size = 28),
+        axis.title.y = element_text(size = 28))+
+  guides(fill = guide_legend(override.aes = list(shape = 23))) 
+
+
+# 16S PERMANOVA STA_ANALYSIS 
+
+set.seed(11357)
+
+# transform data
+ps16S_rel <- microbiome::transform(ps16S, "compositional")
+
+otu16S <- abundances(ps16S_rel)
+meta16S <- meta(ps16S_rel)
+
+
+# by region 
+permanova16S_region <- adonis2(t(otu16S) ~ Region, data = meta16S, 
+                               permutations=999, method = "bray") 
+permanova16S_region
+       
+
+# by sample type (environment)  
+permanova16S_type <- adonis2(t(otu16S) ~ Type, data = meta16S, 
+                             permutations=999, method = "bray") 
+permanova16S_type
+
+
+# by meta-env (individual data set)
+permanova16S_env <- adonis2(t(otu16S) ~ Env, data = meta16S, 
+                               permutations=999, method = "bray") 
+permanova16S_env 
+
+
+#P-values
+print(as.data.frame(permanova16S_region$aov.tab)["Region", "Pr(>F)"])
+print(as.data.frame(permanova16S_type$aov.tab)["Type", "Pr(>F)"])
+print(as.data.frame(permanova16S_env$aov.tab)["Env", "Pr(>F)"])
+
+
+# Checking the homogeneity condition
+#Pair-wise stats
+
+# by region
+dist16S <- vegdist(t(otu16S), "bray")
+anova(betadisper(dist16S, meta16S$Region)) 
+
+permutest(betadisper(dist16S, meta16S$Region), pairwise = TRUE) -> 
+  perm16S_region 
+print(perm16S_region)
+
+
+# by sample type 
+dist16S <- vegdist(t(otu16S), "bray")
+anova(betadisper(dist16S, meta16S$Type))
+
+permutest(betadisper(dist16S, meta16S$Type), pairwise = TRUE) ->
+  perm16S_region
+
+print(perm16S_region)
+
+
+# by Env (individual dataset)
+dist16S <- vegdist(t(otu16S), "bray")
+anova(betadisper(dist16S, meta16S$Env))
+
+permutest(betadisper(dist16S, meta16S$Env), pairwise = TRUE, ordered=TRUE) ->
+  perm16S_env
+print(perm16S_env) 
+### export/save
+
+
+# 18S ---------------------------------------------- 
+# Make an ordination 
+pcoa_18S <- ordinate(
+  physeq = ps18S, 
+  method = "PCoA", 
+  distance = "bray"
+)
+
+plot_ordination(
+  physeq = ps18S,  #phyloseq object
+  ordination = pcoa_18S) + #ordination
+  geom_point(aes(fill = Region, shape = Type), 
+             size = 9) + 
+  scale_shape_manual(values = c(21, 22, 23))+
+  scale_fill_manual(values = mycols) +
+  theme_classic() + 
+  theme(                             
+    legend.text = element_text(size = 28), 
+    legend.title = element_blank(), 
+    legend.background = element_rect(fill = "white", 
+                                     color = "black"))+ 
+  theme(axis.text.y.left = element_text(size = 28),
+        axis.text.x = element_text(size = 28),
+        axis.title.x = element_text(size = 28),
+        axis.title.y = element_text(size = 28))+
+  guides(fill = guide_legend(override.aes = list(shape = 23))) 
+
+
+# 18S PERMANOVA STA_ANALYSIS 
+
+set.seed(11357)
+
+# transform data 
+ps18S_rel <- microbiome::transform(ps18S, "compositional")
+
+otu18S <- abundances(ps18S_rel)
+meta18S <- meta(ps18S_rel)
+
+# by region 
+permanova18S_region <- adonis2(t(otu18S) ~ Region, data = meta18S, 
+                               permutations=999, method = "bray") 
+permanova18S_region 
+
+
+# by type  
+permanova18S_type <- adonis2(t(otu18S) ~ Type, data = meta18S, 
+                             permutations=999, method = "bray") 
+permanova18S_type
+
+
+# by Env (individual dataset)
+permanova18S_env <- adonis2(t(otu18S) ~ Env, data = meta18S, 
+                            permutations=999, method = "bray") 
+permanova18S_env 
+
+#P-values
+print(as.data.frame(permanova18S_region$aov.tab)["Region", "Pr(>F)"])
+print(as.data.frame(permanova18S_type$aov.tab)["Type", "Pr(>F)"])
+print(as.data.frame(permanova18S_env$aov.tab)["Env", "Pr(>F)"])
+
+
+# Checking the homogeneity condition
+# Pair-wise stats
+
+set.seed(11357)
+
+# by region 
+dist18S <- vegdist(t(otu18S), "bray")
+anova(betadisper(dist18S, meta18S$Region))
+permutest(betadisper(dist18S, meta18S$Region), pairwise = TRUE)
+
+
+# by sample type
+dist18S_type <- vegdist(t(otu18S), "bray")
+anova(betadisper(dist18S, meta18S$Type))
+permutest(betadisper(dist18S, meta18S$Type), pairwise = TRUE) 
+
+
+# by Env (individual dataset)
+dist18S <- vegdist(t(otu18S), "bray")
+anova(betadisper(dist18S, meta18S$Env)) 
+permutest(betadisper(dist18S, meta18S$Env), pairwise = TRUE, ordered=TRUE) ->
+  perm18S_env
+
+print(perm18S_env) 
+### export/save 
+
+
+# ITS2 ---------------------------------------------- 
+
+# Make an ordination 
+pcoa_ITS <- ordinate(
+  physeq = psITS, 
+  method = "PCoA", 
+  distance = "bray"
+)
+
+plot_ordination(
+  physeq = psITS,  #phyloseq object
+  ordination = pcoa_ITS) + #ordination
+  geom_point(aes(fill = Region, shape = Type), 
+             size = 9) + #sets fill color to sample region and type
+  scale_shape_manual(values = c(21, 22, 23))+
+  scale_fill_manual(values = c("navyblue", "darkred", "darkgreen")) +
+  theme_classic() + #changes theme, removes grey background
+  theme(                             
+    legend.text = element_text(size = 24), #changes legend size
+    legend.title = element_blank(), #removes legend title
+    legend.background = element_rect(fill = "white", 
+                                     color = "black"))+ #adds black boarder around legend
+  theme(axis.text.y.left = element_text(size = 28, color = "black"),
+        axis.text.x = element_text(size = 28, color = "black"),
+        axis.title.x = element_text(size = 28),
+        axis.title.y = element_text(size = 28))+
+  guides(fill = guide_legend(override.aes = list(shape = 23)))
+
+
+# ITS2 PERMANOVA STA_ANALYSIS 
+set.seed(11357)
+
+# transform data
+psITS_rel <- microbiome::transform(psITS, "compositional")
+
+otuITS <- abundances(psITS_rel)
+metaITS <- meta(psITS_rel) 
+
+# by region 
+permanovaITS_region <- adonis2(t(otuITS) ~ Region, data = metaITS, 
+                               permutations=999, method = "bray") 
+permanovaITS_region
+
+# by type 
+permanovaITS_type <- adonis2(t(otuITS) ~ Type, data = metaITS, 
+                             permutations=999, method = "bray") 
+permanovaITS_type 
+
+
+# by meta-env 
+permanovaITS_env <- adonis2(t(otuITS) ~ Env, data = metaITS, 
+                            permutations=999, method = "bray") 
+permanovaITS_env 
+
+#P-values
+print(as.data.frame(permanovaITS_region$aov.tab)["Region", "Pr(>F)"])
+print(as.data.frame(permanovaITS_type$aov.tab)["Type", "Pr(>F)"])
+print(as.data.frame(permanovaITS_env$aov.tab)["Type", "Pr(>F)"])
+
+
+# Checking the homogeneity condition
+# Pair-wise stats
+
+# by region 
+distITS <- vegdist(t(otuITS), "bray")
+anova(betadisper(distITS, metaITS$Region))
+permutest(betadisper(distITS, metaITS$Region), pairwise = TRUE)
+
+# by sample type
+distITS_type <- vegdist(t(otuITS), "bray")
+anova(betadisper(distITS, metaITS$Type)) 
+permutest(betadisper(distITS, metaITS$Type), pairwise = TRUE) 
+
+# by Env (individual dataset) 
+distITS <- vegdist(t(otuITS), "bray")
+anova(betadisper(distITS, metaITS$Env))
+permutest(betadisper(distITS, metaITS$Env), pairwise = TRUE, ordered=TRUE) ->
+  permITS_env
+print(permITS_env) 
+
+# export/save 
+
+```
+
+
+# differential abundance 
+```{r} 
+
+# 16S DIFFERENCIAL ABUNDANCE TESTING ------------------------------------
+# DeSeq2 tests for differences between microbial communities in each category
+# as well as identifies dysbiotic microbes (imbalances or loss in diversity)
+
+#Convert phyloseq object to DeSeq
+
+# by region
+bsdds_16S <- phyloseq_to_deseq2(ps16Srf, ~Region)
+gm_mean_16S <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_16S <- apply(counts(bsdds_16S), 1, gm_mean_16S)
+bsdds_16S <- estimateSizeFactors(bsdds_16S, geoMeans_16S = geoMeans_16S)
+
+
+bsdds_16S <- DESeq(bsdds_16S, test="Wald", fitType="parametric")
+
+# Results function call creates a table of the results of the tests 
+res_16S <- results(bsdds_16S, cooksCutoff = FALSE)
+alpha_16S <- 0.01
+sigtab_16S <- res_16S[which(res_16S$padj < alpha_16S), ]
+sigtab_16S <- cbind(as(sigtab_16S, "data.frame"), 
+                    as(tax_table(ps16Srf)[rownames(sigtab_16S), ],"matrix")) 
+head(sigtab_16S) 
+
+# Clean up the table a little for legibility 
+posigtab_16S <- sigtab_16S[sigtab_16S[, "log2FoldChange"] > 0, ]
+posigtab_16S <- posigtab_16S[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                 "Phylum", "Class", "Family", "Genus")]
+
+# Bar plot showing the log2-fold-change, showing Genus and Phylum. 
+# apply some ggplot2 commands
+
+sigtabgen_16S <- subset(sigtab_16S, !is.na(Genus))
+
+# Phylum order
+x_16S <- tapply(sigtabgen_16S$log2FoldChange, sigtabgen_16S$Phylum, 
+                function(x_16S) max(x_16S))
+x_16S <- sort(x_16S, TRUE)
+sigtabgen_16S$Phylum = factor(as.character(sigtabgen_16S$Phylum), 
+                              levels=names(x_16S))
+
+
+# Genus order
+x_16S_genus <- tapply(sigtabgen_16S$log2FoldChange, sigtabgen_16S$Genus, 
+                      function(x_16S_genus) max(x_16S_genus))
+x_16S_genus <- sort(x_16S_genus, TRUE)
+sigtabgen_16S$Genus = factor(as.character(sigtabgen_16S$Genus), 
+                             levels=names(x_16S_genus))
+
+ggplot(sigtabgen_16S, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=0.5) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle=0, hjust=0,vjust=1.5,color="black",size = 24),
+        axis.title.x = element_text(size = 28),
+        axis.text.y = element_text(angle = 0, color="black", size = 24),
+        axis.title.y = element_text(angle = 90, size = 28)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 28),
+        legend.title = element_text(size=28)) 
+
+
+# plot is too bit busy, plot ONLY at Phylum level 
+cols16S_region <- c("turquoise","blue","steelblue","navyblue","pink",
+          "red","darkred","violetred","purple","orange",
+          "lightgreen","forestgreen","yellow") 
+
+ggplot(sigtabgen_16S, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", linewidth=1.0) + 
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+                   theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust=2.0,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 20),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label 
+  theme(legend.position = "none") + 
+  xlim(-30, NA) 
+
+
+# flipped option 
+ggplot(sigtabgen_16S, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + 
+  ylab(expression("Phylum (across region)")) + 
+  theme(legend.position = "none")  + 
+  coord_flip() 
+
+
+# by sample type 
+
+bsdds_16S_Type <- phyloseq_to_deseq2(ps16Srf, ~Type)
+gm_mean_16S_Type <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_16S_Type <- apply(counts(bsdds_16S_Type), 1, gm_mean_16S_Type)
+bsdds_16S_Type <- estimateSizeFactors(bsdds_16S_Type, 
+                                      geoMeans_16S_Type = geoMeans_16S_Type)
+
+
+# DeSeq function tests for differential abundance 
+bsdds_16S_Type <- DESeq(bsdds_16S_Type, test="Wald", fitType="parametric")
+
+
+# Results function call creates a table of the results of the tests 
+res_16S_Type <- results(bsdds_16S_Type, cooksCutoff = FALSE)
+alpha_16S_Type <- 0.01
+sigtab_16S_Type <- res_16S_Type[which(res_16S_Type$padj < alpha_16S_Type), ]
+sigtab_16S_Type <- cbind(as(sigtab_16S_Type, "data.frame"), 
+                         as(tax_table(ps16Srf)[rownames(sigtab_16S_Type), ],"matrix")) 
+head(sigtab_16S_Type)
+
+# Cleaning up the table a little for legibility 
+
+posigtab_16S_Type <- sigtab_16S_Type[sigtab_16S_Type[, "log2FoldChange"] > 0, ]
+posigtab_16S_Type <- posigtab_16S_Type[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                           "Phylum", "Class", "Family", "Genus")]
+
+
+# Bar plot showing the log2-fold-change, showing Genus and Phylum 
+
+sigtabgen_16S_Type <- subset(sigtab_16S_Type, !is.na(Genus))
+
+
+# Phylum order
+x_16S_Type <- tapply(sigtabgen_16S_Type$log2FoldChange, sigtabgen_16S_Type$Phylum, 
+                     function(x_16S_Type) max(x_16S_Type))
+x_16S <- sort(x_16S_Type, TRUE)
+sigtabgen_16S_Type$Phylum = factor(as.character(sigtabgen_16S_Type$Phylum), 
+                                   levels=names(x_16S_Type))
+
+# Genus order
+x_16S_genus_Type <- tapply(sigtabgen_16S_Type$log2FoldChange, 
+                           sigtabgen_16S_Type$Genus, 
+                           function(x_16S_genus_Type) max(x_16S_genus_Type))
+x_16S_genus_Type <- sort(x_16S_genus_Type, TRUE)
+sigtabgen_16S_Type$Genus = factor(as.character(sigtabgen_16S_Type$Genus), 
+                                  levels=names(x_16S_genus_Type))
+
+ggplot(sigtabgen_16S_Type, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0, vjust=1.5,
+                                   color="black", size = 24),
+        axis.title.x = element_text(size = 34),
+        axis.text.y = element_text(angle = 0, color="black", size = 16),
+        axis.title.y = element_text(angle = 90, size = 34)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 28),
+        legend.title = element_text(size=34)) 
+
+# plot ONLY at Phylum level 
+ggplot(sigtabgen_16S_Type, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) + 
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label
+  theme(legend.position = "none") +  
+  xlim(-30, NA) + 
+  coord_flip() 
+
+
+# 18S DIFFERENCIAL ABUNDANCE TESTING ---------------------------------------
+
+# convert phyloseq object to DeSeq
+# by region
+
+bsdds_18S <- phyloseq_to_deseq2(ps18Srf, ~Region)
+gm_mean_18S <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_18S <- apply(counts(bsdds_18S), 1, gm_mean_18S)
+bsdds_18S <- estimateSizeFactors(bsdds_18S, geoMeans_18S = geoMeans_18S)
+
+bsdds_18S <- DESeq(bsdds_18S, test="Wald", fitType="parametric")
+
+res_18S <- results(bsdds_18S, cooksCutoff = FALSE)
+alpha_18S <- 0.01
+sigtab_18S <- res_18S[which(res_18S$padj < alpha_18S), ]
+sigtab_18S <- cbind(as(sigtab_18S, "data.frame"), 
+                    as(tax_table(ps18Srf)[rownames(sigtab_18S), ],"matrix")) 
+head(sigtab_18S)
+
+
+# Clean up the table a little for legibility
+
+posigtab_18S <- sigtab_18S[sigtab_18S[, "log2FoldChange"] > 0, ]
+posigtab_18S <- posigtab_18S[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                 "Phylum", "Class", "Family", "Genus")]
+
+
+# log2-fold-change, showing Genus and Phylum 
+sigtabgen_18S <- subset(sigtab_18S, !is.na(Genus))
+
+# Phylum order
+x_18S <- tapply(sigtabgen_18S$log2FoldChange, sigtabgen_18S$Phylum, 
+                function(x_18S) max(x_18S))
+x_18S <- sort(x_18S, TRUE)
+sigtabgen_18S$Phylum = factor(as.character(sigtabgen_18S$Phylum), 
+                              levels=names(x_18S))
+
+# Genus order
+x_18S_genus <- tapply(sigtabgen_18S$log2FoldChange, sigtabgen_18S$Genus, 
+                      function(x_18S_genus) max(x_18S_genus))
+x_18S_genus <- sort(x_18S_genus, TRUE)
+sigtabgen_18S$Genus = factor(as.character(sigtabgen_18S$Genus), 
+                             levels=names(x_18S_genus))
+
+ggplot(sigtabgen_18S, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=0.5) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle=0, hjust=0,vjust=1.5,color="black",size = 24),
+        axis.title.x = element_text(size = 28),
+        axis.text.y = element_text(angle = 0, color="black", size = 24),
+        axis.title.y = element_text(angle = 90, size = 28)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 28),
+        legend.title = element_text(size=28)) 
+
+# plot ONLY at Phylum level 
+
+ggplot(sigtabgen_18S, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label 
+  theme(legend.position = "none") + 
+  xlim(-30, NA) 
+
+# flip option 
+ggplot(sigtabgen_18S, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(size=5) + theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 28),
+        axis.title.x = element_text(size = 30),
+        axis.text.y = element_text(angle = 0, color="black", size = 28),
+        axis.title.y = element_text(angle = 90, size = 30)) +
+  theme(legend.position = "none") + coord_flip()
+
+
+# by sample/environment type 
+
+bsdds_18S_Type <- phyloseq_to_deseq2(ps18Srf, ~Type)
+gm_mean_18S_Type <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_18S_Type <- apply(counts(bsdds_18S_Type), 1, gm_mean_18S_Type)
+bsdds_18S_Type <- estimateSizeFactors(bsdds_18S_Type, 
+                                      geoMeans_18S_Type = geoMeans_18S_Type)
+
+bsdds_18S_Type <- DESeq(bsdds_18S_Type, test="Wald", fitType="parametric")
+
+res_18S_Type <- results(bsdds_18S_Type, cooksCutoff = FALSE)
+alpha_18S_Type <- 0.01
+sigtab_18S_Type <- res_18S_Type[which(res_18S_Type$padj < alpha_18S_Type), ]
+sigtab_18S_Type <- cbind(as(sigtab_18S_Type, "data.frame"), 
+                         as(tax_table(ps18Srf)[rownames(sigtab_18S_Type), ],"matrix")) 
+head(sigtab_18S_Type)
+
+# Cleaning up the table a little for legibility 
+
+posigtab_18S_Type <- sigtab_18S_Type[sigtab_18S_Type[, "log2FoldChange"] > 0, ]
+posigtab_18S_Type <- posigtab_18S_Type[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                           "Phylum", "Class", "Family", "Genus")]
+
+# log2-fold-change, showing Genus and Phylum 
+sigtabgen_18S_Type <- subset(sigtab_18S_Type, !is.na(Genus))
+
+# Phylum order
+x_18S_Type <- tapply(sigtabgen_18S_Type$log2FoldChange, sigtabgen_18S_Type$Phylum, 
+                     function(x_18S_Type) max(x_18S_Type))
+x_18S <- sort(x_18S_Type, TRUE)
+sigtabgen_18S_Type$Phylum = factor(as.character(sigtabgen_18S_Type$Phylum), 
+                                   levels=names(x_18S_Type))
+
+# Genus order
+x_18S_genus_Type <- tapply(sigtabgen_18S_Type$log2FoldChange, 
+                           sigtabgen_18S_Type$Genus, 
+                           function(x_18S_genus_Type) max(x_18S_genus_Type))
+x_18S_genus_Type <- sort(x_18S_genus_Type, TRUE)
+sigtabgen_18S_Type$Genus = factor(as.character(sigtabgen_18S_Type$Genus), 
+                                  levels=names(x_18S_genus_Type))
+
+ggplot(sigtabgen_18S_Type, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=0.5) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle=0, hjust=0,vjust=1.5,color="black",size = 28),
+        axis.title.x = element_text(size = 34),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 34)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 34),
+        legend.title = element_text(size=34)) 
+
+
+# plot ONLY at Phylum level 
+
+ggplot(sigtabgen_18S_Type, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 24)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label 
+  theme(legend.position = "none") + 
+  xlim(-30, NA)
+
+
+#ITS2 DIFFERENCIAL ABUNDANCE TESTING --------------------------------------
+
+#Convert phyloseq object to DeSeq
+# by region
+
+bsdds_ITS <- phyloseq_to_deseq2(psITSrf, ~Region)
+gm_mean_ITS <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_ITS <- apply(counts(bsdds_ITS), 1, gm_mean_ITS)
+bsdds_ITS <- estimateSizeFactors(bsdds_ITS, geoMeans_ITS = geoMeans_ITS)
+
+bsdds_ITS <- DESeq(bsdds_ITS, test="Wald", fitType="parametric")
+
+res_ITS <- results(bsdds_ITS, cooksCutoff = FALSE)
+alpha_ITS <- 0.01
+sigtab_ITS <- res_ITS[which(res_ITS$padj < alpha_ITS), ]
+sigtab_ITS <- cbind(as(sigtab_ITS, "data.frame"), 
+                    as(tax_table(psITSrf)[rownames(sigtab_ITS), ],"matrix")) 
+head(sigtab_ITS)
+
+# Clean up the table a little for legibility
+
+posigtab_ITS <- sigtab_ITS[sigtab_ITS[, "log2FoldChange"] > 0, ]
+posigtab_ITS <- posigtab_ITS[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                 "Phylum", "Class", "Family", "Genus")]
+
+# log2-fold-change, showing Genus and Phylum. 
+
+sigtabgen_ITS <- subset(sigtab_ITS, !is.na(Genus))
+
+# Phylum order
+x_ITS <- tapply(sigtabgen_ITS$log2FoldChange, sigtabgen_ITS$Phylum, 
+                function(x_ITS) max(x_ITS))
+x_ITS <- sort(x_ITS, TRUE)
+sigtabgen_ITS$Phylum = factor(as.character(sigtabgen_ITS$Phylum), 
+                              levels=names(x_ITS))
+
+
+# Genus order
+x_ITS_genus <- tapply(sigtabgen_ITS$log2FoldChange, sigtabgen_ITS$Genus, 
+                      function(x_ITS_genus) max(x_ITS_genus))
+x_ITS_genus <- sort(x_ITS_genus, TRUE)
+sigtabgen_ITS$Genus = factor(as.character(sigtabgen_ITS$Genus), 
+                             levels=names(x_ITS_genus))
+
+ggplot(sigtabgen_ITS, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=0.5) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle=0, hjust=0,vjust=1.5,color="black",size = 24),
+        axis.title.x = element_text(size = 28),
+        axis.text.y = element_text(angle = 0, color="black", size = 24),
+        axis.title.y = element_text(angle = 90, size = 28)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 28),
+        legend.title = element_text(size = 28)) 
+
+
+# plot ONLY at Phylum level 
+
+ggplot(sigtabgen_ITS, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 20),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label 
+  theme(legend.position = "none") + 
+  xlim(-20, 10) 
+
+# flipped option 
+ggplot(sigtabgen_ITS, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black",
+             size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5,
+                                   color="black", size = 22),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + 
+  theme(legend.position = "none")  + 
+  xlim(-10, 10) + 
+  coord_flip() 
+
+
+# by sample type
+bsdds_ITS_Type <- phyloseq_to_deseq2(psITSrf, ~Type)
+gm_mean_ITS_Type <- function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans_ITS_Type <- apply(counts(bsdds_ITS_Type), 1, gm_mean_ITS_Type)
+bsdds_ITS_Type <- estimateSizeFactors(bsdds_ITS_Type, 
+                                      geoMeans_ITS_Type = geoMeans_ITS_Type)
+
+bsdds_ITS_Type <- DESeq(bsdds_ITS_Type, test="Wald", fitType="parametric")
+
+res_ITS_Type <- results(bsdds_ITS_Type, cooksCutoff = FALSE)
+alpha_ITS_Type <- 0.01
+sigtab_ITS_Type <- res_ITS_Type[which(res_ITS_Type$padj < alpha_ITS_Type), ]
+sigtab_ITS_Type <- cbind(as(sigtab_ITS_Type, "data.frame"), 
+                         as(tax_table(psITSrf)[rownames(sigtab_ITS_Type), ],"matrix")) 
+head(sigtab_ITS_Type)
+
+# Cleaning up the table a little for legibility 
+
+posigtab_ITS_Type <- sigtab_ITS_Type[sigtab_ITS_Type[, "log2FoldChange"] > 0, ]
+posigtab_ITS_Type <- posigtab_ITS_Type[, c("baseMean", "log2FoldChange", "lfcSE", "padj", 
+                                           "Phylum", "Class", "Family", "Genus")]
+
+# log2-fold-change, showing Genus and Phylum. 
+
+sigtabgen_ITS_Type <- subset(sigtab_ITS_Type, !is.na(Genus))
+
+
+# Phylum order
+x_ITS_Type <- tapply(sigtabgen_ITS_Type$log2FoldChange, sigtabgen_ITS_Type$Phylum, 
+                     function(x_ITS_Type) max(x_ITS_Type))
+x_ITS <- sort(x_ITS_Type, TRUE)
+sigtabgen_ITS_Type$Phylum = factor(as.character(sigtabgen_ITS_Type$Phylum), 
+                                   levels=names(x_ITS_Type))
+
+# Genus order
+x_ITS_genus_Type <- tapply(sigtabgen_ITS_Type$log2FoldChange, 
+                           sigtabgen_ITS_Type$Genus, 
+                           function(x_ITS_genus_Type) max(x_ITS_genus_Type))
+x_ITS_genus_Type <- sort(x_ITS_genus_Type, TRUE)
+sigtabgen_ITS_Type$Genus = factor(as.character(sigtabgen_ITS_Type$Genus), 
+                                  levels=names(x_ITS_genus_Type))
+
+ggplot(sigtabgen_ITS_Type, aes(y=Genus, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=0.5) +
+  geom_point(size=6) + theme_classic() + 
+  theme(axis.text.x = element_text(angle=0, hjust=0,vjust=1.5,color="black",size = 24),
+        axis.title.x = element_text(size = 28),
+        axis.text.y = element_text(angle = 0, color="black", size = 24),
+        axis.title.y = element_text(angle = 90, size = 28)) +
+  theme(legend.text = element_text(vjust = 0.7, size = 28),
+        legend.title = element_text(size = 28)) 
+
+# plot ONLY at Phylum level 
+
+ggplot(sigtabgen_ITS_Type, aes(y=Phylum, x=log2FoldChange, color=Phylum)) + 
+  geom_vline(xintercept = 0.0, color="black", linetype="dashed", size=1.0) +
+  geom_point(aes(colour = Phylum, size=7)) + 
+  geom_point(shape = 21, colour = "black", size = 5.5, stroke = 1.0) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust=1.8,
+                                   color="black", size = 20),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(angle = 0, color="black", size = 22),
+        axis.title.y = element_text(angle = 90, size = 22)) + 
+  xlab(expression("Change in abundance"(log[2]-foldchange))) + #Change X-Axis label 
+  theme(legend.position = "none") + 
+  xlim(-20, 20) 
+
+```
+
+
+# DESeq2 AND HEATMAP
+```{r} 
+
+# 16S DESeq2 AND HEATMAP ------------------------------------------
+
+set.seed(11357)
+
+sample_data(ps16S)$Region <- as.factor(
+  sample_data(ps16S)$Region) #factorize for DESeq2 
+
+ps16S.taxa <-  tax_glom(ps16S, taxrank = 'Genus', NArm = FALSE) 
+
+# by region 
+# pairwise comparison between sites/regions 
+ps16S.taxa.sub <- subset_samples(ps16S.taxa, Region %in% c("downstream", 
+                                                           "midstream",
+                                                           "upstream")) 
+
+# filter sparse features, with > 90% zeros 
+ps16S.taxa.pse.sub <- prune_taxa(rowSums(otu_table(
+  ps16S.taxa.sub) == 0) < ncol(otu_table(ps16S.taxa.sub)) * 0.9, ps16S.taxa.sub)
+
+ps16S_ds = phyloseq_to_deseq2(ps16S.taxa.pse.sub, ~ Region) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+ds16S <- estimateSizeFactors(ps16S_ds, type="poscounts") 
+
+ds16S = DESeq(ds16S, test="Wald", fitType="parametric")
+
+alpha16S_region = 0.05 
+
+res16S_region = results(ds16S, alpha=alpha16S_region) 
+
+res16S_region = res16S_region[order(res16S_region$padj, na.last=NA), ] 
+
+taxa_sig16S_region = rownames(
+  res16S_region[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.rel16S_region <- transform_sample_counts(ps16S, function(x) x/sum(x)*100) 
+
+ps.taxa.rel16S.sig <- prune_taxa(taxa_sig16S_region, ps.taxa.rel16S_region)
+
+ps.taxa.rel.sig16S_region <- prune_samples(colnames(otu_table(
+  ps16S.taxa.pse.sub)), ps.taxa.rel16S.sig)
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+
+matrix16S_region <- as.matrix(data.frame(otu_table(ps.taxa.rel.sig16S_region))) 
+
+rownames(matrix16S_region) <- as.character(tax_table(
+  ps.taxa.rel.sig16S_region)[, "Genus"]) 
+
+metadata_sub16S_region <- data.frame(sample_data(ps.taxa.rel.sig16S_region))
+
+# define the annotation color for columns and rows 
+annotation_col_16Sregion = data.frame(
+  Environment = as.factor(metadata_sub16S_region$Type), 
+  `Region` = as.factor(metadata_sub16S_region$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_16Sregion) = rownames(metadata_sub16S_region)
+
+annotation_row16S_region = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.rel.sig16S_region)[, "Phylum"])) 
+
+
+rownames(annotation_row16S_region) = rownames(matrix16S_region) 
+
+
+# ann_color should be named vectors 
+phylum_col16S_region = RColorBrewer::brewer.pal(length(
+  levels(annotation_row16S_region$Phylum)), "Paired") 
+
+names(phylum_col16S_region) = levels(annotation_row16S_region$Phylum) 
+
+ann_colors16S_region = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_col16S_region) 
+
+
+set.seed(11357) 
+ComplexHeatmap::pheatmap(matrix16S_region, cluster_rows = FALSE, 
+                         scale= "row", 
+                         annotation_col = annotation_col_16Sregion,
+                         fontsize_col = 14,
+                         annotation_row = annotation_row16S_region,
+                         fontsize_row = 18, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 10, 
+                         row_names_side = "left",
+                         heatmap_legend_param = list(title = "Matrix",
+                                         title_gp = gpar(fontsize = 18), 
+                                         labels_gp = gpar(fontsize = 14),
+                                         legend_direction = "vertical",
+                                         legend_height = unit(4, "cm")),
+                         annotation_legend = TRUE,
+                         annotation_colors = ann_colors16S_region,
+                         ) 
+### edit heatmap 
+
+
+# by sample envirment/type 
+
+sample_data(ps16S)$Type <- as.factor(
+  sample_data(ps16S)$Type) #factorize for DESeq2
+
+ps16S.taxa_type <- tax_glom(ps16S, taxrank = 'Genus', NArm = FALSE) 
+
+# pairwise comparison between sites/regions 
+ps16S.taxa.sub_type <- subset_samples(ps16S.taxa_type, 
+                                      Type %in% c("water",
+                                                  "sediments")) 
+
+# filter sparse features, with > 90% zeros 
+ps16S.taxa.pse.sub.type <- prune_taxa(rowSums(otu_table(
+  ps16S.taxa.sub_type) == 0) < ncol(otu_table(
+    ps16S.taxa.sub_type)) * 0.9, ps16S.taxa.sub_type)
+
+ps16S_ds_type = phyloseq_to_deseq2(ps16S.taxa.pse.sub.type, ~ Type) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+ds16S_type <- estimateSizeFactors(ps16S_ds_type, type="poscounts") 
+
+ds16S_type = DESeq(ds16S_type, test="Wald", fitType="parametric")
+
+alpha16S_type = 0.05 
+
+res16S_type = results(ds16S_type, alpha=alpha16S_type) 
+
+res16S_type = res16S_type[order(res16S_type$padj, na.last=NA), ] 
+
+taxa_sig16S_type = rownames(
+  res16S_type[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.rel16S_type <- transform_sample_counts(ps16S, function(x) x/sum(x)*100) 
+
+ps.taxa.rel16S.sig_type <- prune_taxa(taxa_sig16S_type, ps.taxa.rel16S_type)
+
+ps.taxa.rel.sig16S_type <- prune_samples(colnames(otu_table(
+  ps16S.taxa.pse.sub.type)), ps.taxa.rel16S.sig_type) 
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+matrix16S_type <- as.matrix(data.frame(otu_table(ps.taxa.rel16S.sig_type))) 
+
+rownames(matrix16S_type) <- as.character(tax_table(
+  ps.taxa.rel16S.sig_type)[, "Genus"]) 
+
+metadata_sub16S_type <- data.frame(sample_data(ps.taxa.rel16S.sig_type)) 
+
+# define the annotation color for columns and rows 
+
+annotation_col_16Stype = data.frame(
+  Environment = as.factor(metadata_sub16S_type$Type), 
+  `Region` = as.factor(metadata_sub16S_type$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_16Stype) = rownames(metadata_sub16S_type)
+
+annotation_row16S_type = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.rel16S.sig_type)[, "Phylum"])) 
+
+rownames(annotation_row16S_type) = rownames(matrix16S_type) 
+
+
+# ann_color should be named vectors 
+phylum_col16S_type = RColorBrewer::brewer.pal(length(
+  levels(annotation_row16S_type$Phylum)), "Paired") 
+
+names(phylum_col16S_type) = levels(annotation_row16S_type$Phylum) 
+
+ann_colors16S_type = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_col16S_type) 
+
+
+ComplexHeatmap::pheatmap(matrix16S_type,cluster_rows = FALSE,scale= "row", 
+                         annotation_col = annotation_col_16Stype,
+                         fontsize_col = 16,
+                         annotation_row = annotation_row16S_type,
+                         fontsize_row = 20, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 10, 
+                         heatmap_legend_param = list(title = "Matrix",
+                                                     title_position = "topcenter",
+                                                     title_gp = gpar(fontsize = 16), 
+                                                     labels_gp = gpar(fontsize = 14),
+                           legend_direction = "horizontal",
+                           legend_width = unit(4, "cm")),
+                         annotation_legend = TRUE, 
+                         annotation_colors = ann_colors16S_type
+) 
+# edit hm 
+
+
+# 18S DESeq2 AND HEATMAP ------------------------------------------
+set.seed(11357) 
+
+sample_data(ps18S)$Region <- as.factor(
+  sample_data(ps18S)$Region) #factorize for DESeq2
+
+ps18S.taxa <- tax_glom(ps18S, taxrank = 'Genus', NArm = FALSE)
+
+# by region 
+# pairwise comparison between sites/regions 
+ps18S.taxa.sub <- subset_samples(ps18S.taxa, Region %in% c("downstream", 
+                                                         "midstream",
+                                                         "upstream")) 
+
+# filter sparse features, with > 90% zeros 
+ps18S.taxa.pse.sub <- prune_taxa(rowSums(otu_table(
+  ps18S.taxa.sub) == 0) < ncol(otu_table(ps18S.taxa.sub)) * 0.9, ps18S.taxa.sub)
+
+ps18S_ds = phyloseq_to_deseq2(ps18S.taxa.pse.sub, ~ Region) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+ds18S <- estimateSizeFactors(ps18S_ds, type="poscounts") 
+
+ds18S = DESeq(ds18S, test="Wald", fitType="parametric")
+
+alpha18S_region = 0.05 
+
+res18S_region = results(ds18S, alpha=alpha18S_region) 
+
+res18S_region = res18S_region[order(res18S_region$padj, na.last=NA), ] 
+
+taxa_sig18S_region = rownames(
+  res18S_region[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.rel18S_region <- transform_sample_counts(ps18S, function(x) x/sum(x)*100) 
+
+ps.taxa.rel18S.sig <- prune_taxa(taxa_sig18S_region, ps.taxa.rel18S_region)
+
+ps.taxa.rel.sig18S_region <- prune_samples(colnames(otu_table(
+  ps18S.taxa.pse.sub)), ps.taxa.rel18S.sig)
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+
+matrix18S_region <- as.matrix(data.frame(otu_table(ps.taxa.rel.sig18S_region))) 
+
+rownames(matrix18S_region) <- as.character(tax_table(
+  ps.taxa.rel.sig18S_region)[, "Genus"]) 
+
+metadata_sub18S_region <- data.frame(sample_data(ps.taxa.rel.sig18S_region))
+
+# define the annotation color for columns and rows 
+annotation_col_18Sregion = data.frame(
+  Environment = as.factor(metadata_sub18S_region$Type), 
+  `Region` = as.factor(metadata_sub18S_region$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_18Sregion) = rownames(metadata_sub18S_region)
+
+annotation_row18S_region = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.rel.sig18S_region)[, "Phylum"])) 
+
+rownames(annotation_row18S_region) = rownames(matrix18S_region) 
+
+
+# ann_color should be named vectors 
+phylum_col18S_region = RColorBrewer::brewer.pal(length(
+  levels(annotation_row18S_region$Phylum)), "Paired") 
+
+names(phylum_col18S_region) = levels(annotation_row18S_region$Phylum) 
+
+ann_colors18S_region = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_col18S_region) 
+
+
+ComplexHeatmap::pheatmap(matrix18S_region,
+                         cluster_rows = FALSE, scale= "row", 
+                         annotation_col = annotation_col_18Sregion,
+                         fontsize_col = 14,
+                         annotation_row = annotation_row18S_region,
+                         fontsize_row = 18, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 14, 
+                         heatmap_legend_param = list(title = "Matrix",
+                                                     title_position = "topcenter",
+                                                     title_gp = gpar(fontsize = 16), 
+                                                     labels_gp = gpar(fontsize = 14),
+                                                     legend_direction = "horizontal",
+                                                     legend_width = unit(4, "cm")),
+                         annotation_legend = TRUE, 
+                         annotation_colors = ann_colors18S_region
+                         ) 
+# edit heatmap 
+
+
+# by sample envirment/type 
+
+sample_data(ps18S)$Type <- as.factor(
+  sample_data(ps18S)$Type) #factorize for DESeq2
+
+ps18S.taxa_type <- tax_glom(ps18S, taxrank = 'Genus', NArm = FALSE)
+
+# by type/environment 
+# pairwise comparison between sites/regions 
+ps18S.taxa.sub_type <- subset_samples(ps18S.taxa_type, 
+                                      Type %in% c("water",
+                                                  "sediments")) 
+
+# filter sparse features, with > 90% zeros 
+ps18S.taxa.pse.sub.type <- prune_taxa(rowSums(otu_table(
+  ps18S.taxa.sub_type) == 0) < ncol(otu_table(
+    ps18S.taxa.sub_type)) * 0.9, ps18S.taxa.sub_type)
+
+ps18S_ds_type = phyloseq_to_deseq2(ps18S.taxa.pse.sub.type, ~ Type) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+ds18S_type <- estimateSizeFactors(ps18S_ds_type, type="poscounts") 
+
+ds18S_type = DESeq(ds18S_type, test="Wald", fitType="parametric")
+
+alpha18S_type = 0.05 
+
+res18S_type = results(ds18S_type, alpha=alpha18S_type) 
+
+res18S_type = res18S_type[order(res18S_type$padj, na.last=NA), ] 
+
+taxa_sig18S_type = rownames(
+  res18S_type[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.rel18S_type <- transform_sample_counts(ps18S, function(x) x/sum(x)*100) 
+
+ps.taxa.rel18S.sig_type <- prune_taxa(taxa_sig18S_type, ps.taxa.rel18S_type)
+
+ps.taxa.rel.sig18S_type <- prune_samples(colnames(otu_table(
+  ps18S.taxa.pse.sub.type)), ps.taxa.rel18S.sig_type) 
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+matrix18S_type <- as.matrix(data.frame(otu_table(ps.taxa.rel18S.sig_type))) 
+
+rownames(matrix18S_type) <- as.character(tax_table(
+  ps.taxa.rel18S.sig_type)[, "Genus"]) 
+
+metadata_sub18S_type <- data.frame(sample_data(ps.taxa.rel18S.sig_type))
+
+
+# define the annotation color for columns and rows 
+annotation_col_18Stype = data.frame(
+  Environment = as.factor(metadata_sub18S_type$Type), 
+  `Region` = as.factor(metadata_sub18S_type$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_18Stype) = rownames(metadata_sub18S_type)
+
+annotation_row18S_type = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.rel18S.sig_type)[, "Phylum"])) 
+
+rownames(annotation_row18S_type) = rownames(matrix18S_type) 
+
+# ann_color should be named vectors 
+phylum_col18S_type = RColorBrewer::brewer.pal(length(
+  levels(annotation_row18S_type$Phylum)), "Paired") 
+
+names(phylum_col18S_type) = levels(annotation_row18S_type$Phylum) 
+
+ann_colors18S_type = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_col18S_type) 
+
+
+ComplexHeatmap::pheatmap(matrix18S_type,
+                         cluster_rows = FALSE, scale= "row", 
+                         annotation_col = annotation_col_18Stype,
+                         fontsize_col = 14,
+                         annotation_row = annotation_row18S_type,
+                         fontsize_row = 18, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 10, 
+                         heatmap_legend_param = list(title = "Matrix",
+                                                     title_position = "topcenter",
+                                                     title_gp = gpar(fontsize = 16), 
+                                                     labels_gp = gpar(fontsize = 14),
+                                                     legend_direction = "horizontal",
+                                                     legend_width = unit(4, "cm")),
+                         annotation_legend = TRUE, 
+                         annotation_colors = ann_colors18S_type
+) 
+
+# edit plot
+
+
+# ITS2 DESeq2 AND HEATMAP ------------------------------------------
+
+set.seed(11357)
+
+sample_data(psITS)$Region <- as.factor(
+  sample_data(psITS)$Region) #factorize for DESeq2
+
+psITS.taxa <- tax_glom(psITS, taxrank = 'Genus', NArm = FALSE)
+
+# by region 
+# pairwise comparison between sites/regions 
+psITS.taxa.sub <- subset_samples(psITS.taxa, Region %in% c("downstream", 
+                                                           "midstream",
+                                                           "upstream")) 
+
+# filter sparse features, with > 90% zeros 
+psITS.taxa.pse.sub <- prune_taxa(rowSums(otu_table(
+  psITS.taxa.sub) == 0) < ncol(otu_table(psITS.taxa.sub)) * 0.9, psITS.taxa.sub)
+
+psITS_ds = phyloseq_to_deseq2(psITS.taxa.pse.sub, ~ Region) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+dsITS <- estimateSizeFactors(psITS_ds, type="poscounts") 
+
+dsITS = DESeq(dsITS, test="Wald", fitType="parametric")
+
+alphaITS_region = 0.05 
+
+resITS_region = results(dsITS, alpha=alphaITS_region) 
+
+resITS_region = resITS_region[order(resITS_region$padj, na.last=NA), ] 
+
+taxa_sigITS_region = rownames(
+  resITS_region[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.relITS_region <- transform_sample_counts(psITS, function(x) x/sum(x)*100) 
+
+ps.taxa.relITS.sig <- prune_taxa(taxa_sigITS_region, ps.taxa.relITS_region)
+
+
+ps.taxa.rel.sigITS_region <- prune_samples(colnames(otu_table(
+  psITS.taxa.pse.sub)), ps.taxa.relITS.sig)
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+
+matrixITS_region <- as.matrix(data.frame(otu_table(ps.taxa.rel.sigITS_region))) 
+
+rownames(matrixITS_region) <- as.character(tax_table(
+  ps.taxa.rel.sigITS_region)[, "Genus"]) 
+
+metadata_subITS_region <- data.frame(sample_data(ps.taxa.rel.sigITS_region))
+
+# define the annotation color for columns and rows 
+annotation_col_ITSregion = data.frame(
+  Environment = as.factor(metadata_subITS_region$Type), 
+  `Region` = as.factor(metadata_subITS_region$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_ITSregion) = rownames(metadata_subITS_region)
+
+annotation_rowITS_region = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.rel.sigITS_region)[, "Phylum"])) 
+
+rownames(annotation_rowITS_region) = rownames(matrixITS_region) 
+
+# ann_color should be named vectors 
+phylum_colITS_region = RColorBrewer::brewer.pal(length(
+  levels(annotation_rowITS_region$Phylum)), "Paired") 
+
+names(phylum_colITS_region) = levels(annotation_rowITS_region$Phylum) 
+
+ann_colorsITS_region = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_colITS_region) 
+
+ComplexHeatmap::pheatmap(matrixITS_region, 
+                         cluster_rows = FALSE, scale= "row",
+                         annotation_col = annotation_col_ITSregion,
+                         fontsize_col = 14,
+                         annotation_row = annotation_rowITS_region,
+                         fontsize_row = 18, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 14, 
+                         heatmap_legend_param = list(title = "Matrix",
+                                                     title_position = "topcenter",
+                                                     title_gp = gpar(fontsize = 16), 
+                                                     labels_gp = gpar(fontsize = 14),
+                                                     legend_direction = "horizontal",
+                                                     legend_width = unit(4, "cm")),
+                         annotation_legend = TRUE, 
+                         annotation_colors = ann_colorsITS_region
+)  
+# edit hm
+
+
+# by sample environment/type 
+sample_data(psITS)$Type <- as.factor(
+  sample_data(psITS)$Type) #factorize for DESeq2
+
+psITS.taxa_type <- tax_glom(psITS, taxrank = 'Genus', NArm = FALSE) 
+
+# pairwise comparison between sites/regions 
+psITS.taxa.sub_type <- subset_samples(psITS.taxa_type, 
+                                      Type %in% c("water",
+                                                  "sediments")) 
+
+# filter sparse features, with > 90% zeros 
+psITS.taxa.pse.sub.type <- prune_taxa(rowSums(otu_table(
+  psITS.taxa.sub_type) == 0) < ncol(otu_table(
+    psITS.taxa.sub_type)) * 0.9, psITS.taxa.sub_type)
+
+psITS_ds_type = phyloseq_to_deseq2(psITS.taxa.pse.sub.type, ~ Type) 
+
+# use alternative estimator on a condition of "every gene contains a sample 
+# with a zero"
+
+dsITS_type <- estimateSizeFactors(psITS_ds_type, type="poscounts") 
+
+dsITS_type = DESeq(dsITS_type, test="Wald", fitType="parametric")
+
+alphaITS_type = 0.05 
+
+resITS_type = results(dsITS_type, alpha=alphaITS_type) 
+
+resITS_type = resITS_type[order(resITS_type$padj, na.last=NA), ] 
+
+taxa_sigITS_type = rownames(
+  resITS_type[1:20, ]) #select bottom 20 with lowest p.adj values 
+
+ps.taxa.relITS_type <- transform_sample_counts(psITS, function(x) x/sum(x)*100) 
+
+ps.taxa.relITS.sig_type <- prune_taxa(taxa_sigITS_type, ps.taxa.relITS_type)
+
+ps.taxa.rel.sigITS_type <- prune_samples(colnames(otu_table(
+  psITS.taxa.pse.sub.type)), ps.taxa.relITS.sig_type) 
+
+# make pheatmap specific using the "ComplexHeatmap::pheatmap" function 
+matrixITS_type <- as.matrix(data.frame(otu_table(ps.taxa.relITS.sig_type))) 
+
+rownames(matrixITS_type) <- as.character(tax_table(
+  ps.taxa.relITS.sig_type)[, "Genus"]) 
+
+metadata_subITS_type <- data.frame(sample_data(ps.taxa.relITS.sig_type)) 
+
+# define the annotation color for columns and rows 
+annotation_col_ITStype = data.frame(
+  Environment = as.factor(metadata_subITS_type$Type), 
+  `Region` = as.factor(metadata_subITS_type$Region), 
+  check.names = FALSE)
+
+rownames(annotation_col_ITStype) = rownames(metadata_subITS_type)
+
+annotation_rowITS_type = data.frame(
+  Phylum = as.factor(tax_table(ps.taxa.relITS.sig_type)[, "Phylum"])) 
+
+rownames(annotation_rowITS_type) = rownames(matrixITS_type) 
+
+# ann_color should be named vectors 
+phylum_colITS_type = RColorBrewer::brewer.pal(length(
+  levels(annotation_rowITS_type$Phylum)), "Paired") 
+
+names(phylum_colITS_type) = levels(annotation_rowITS_type$Phylum) 
+
+ann_colorsITS_type = list(
+  Environment = c(`water` = "pink", `sediments` = "darkred"), 
+  `Region` = c(downstream = "turquoise",midstream = "blue",upstream = "navyblue"),
+  Phylum = phylum_colITS_type) 
+
+
+ComplexHeatmap::pheatmap(matrixITS_type,
+                         cluster_rows = FALSE, scale= "row",
+                         annotation_col = annotation_col_ITStype,
+                         fontsize_col = 14,
+                         annotation_row = annotation_rowITS_type,
+                         fontsize_row = 18, 
+                         main = "Dendogram: Euclidean Distance",
+                         fontsize = 14, 
+                         heatmap_legend_param = list(title = "Matrix",
+                                                     title_position = "topcenter",
+                                                     title_gp = gpar(fontsize = 16), 
+                                                     labels_gp = gpar(fontsize = 14),
+                                                     legend_direction = "horizontal",
+                                                     legend_width = unit(4, "cm")),
+                         annotation_legend = TRUE, 
+                         annotation_colors = ann_colorsITS_type
+)
+# edit hm  
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

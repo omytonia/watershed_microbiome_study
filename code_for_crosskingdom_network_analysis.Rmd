@@ -1,0 +1,2034 @@
+---
+title: "markdownscripts_for_crosskingdom_network"
+author: "Omy Ogbughalu"
+date: "2023-04-05"
+output: html_document
+---
+
+
+# load libraries
+
+```{r}
+# clean up R environment (if needed)
+rm(list=ls())
+
+library(phyloseq)
+library(qiime2R)
+library(microbiome)
+library(tidyverse)
+library(vegan)
+library(seqtime)
+library(igraph) # already loaded as part of "seqtime" dependency 
+library(Matrix)
+library(plyr)
+library(lattice)
+library(ape)
+library(colorspace)
+library(RColorBrewer)
+library(jsonlite) 
+# network and other libraries
+library(SpiecEasi)
+library(SPRING)
+library(NetCoMi)
+```
+
+
+# import files 
+```{r}
+# USW (16S, 18S and ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS 
+# USW 16S 
+# Importing metadata
+USW_md <- read.table("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/USW_mapping.txt", 
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file 
+USW_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/final_filtered_16Sdada2.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USW_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/16S-taxonomy.qza")
+
+USW_tax16S <- USW_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating 16S-USW phyloseq object (with the confidence already removed) 
+psUSW_16S <- phyloseq(
+  otu_table(USW_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USW_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psUSW_16S)
+otu_table(psUSW_16S)[1:5, 1:5]
+tax_table(psUSW_16S)[1:5, 1:4]
+ntaxa(psUSW_16S)
+
+
+# USW 18S 
+# Importing ASVs abundance file
+USW_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/final_filtered_Adada2table.qza")
+
+# Importing metadata
+USW_md <- read.table("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/USW_mapping.txt", 
+                     sep='\t', header=T)
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USW_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/A-taxonomy.qza") 
+USW_tax18S <- USW_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating 18S-USW phyloseq object (with the confidence already removed) 
+psUSW_18S <- phyloseq(
+  otu_table(USW_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USW_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# USW ITS
+# Importing ASVs abundance file
+USW_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing metadata
+USW_md <- read.table("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/USW_mapping.txt", 
+                     sep='\t', header=T)
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USW_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USW_16S-18S-ITS/ITS-taxonomy.qza") 
+
+USW_taxITS<-USW_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k__[0-7]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating 16S-USW phyloseq object (with the confidence already removed) 
+psUSW_ITS <- phyloseq(
+  otu_table(USW_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USW_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# clean up tax table
+tax_table(psUSW_ITS)[, colnames(tax_table(psUSW_ITS))] <- gsub(tax_table(psUSW_ITS)[, colnames(tax_table(psUSW_ITS))],
+                                                 pattern = "[a-z]__", replacement = "")
+
+
+# MSW (16S, 18S and ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS
+# MSW 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+MSW_md <- read.table("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/MSW_mapping.txt", 
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file
+MSW_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSW_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/16S-taxonomy.qza")
+
+MSW_tax16S <- MSW_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSW_16S <- phyloseq(
+  otu_table(MSW_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSW_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# MSW 18S 
+# Importing ASVs abundance file
+MSW_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSW_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/A-taxonomy.qza") 
+MSW_tax18S <- MSW_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSW_18S <- phyloseq(
+  otu_table(MSW_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSW_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# MSW ITS
+# Importing ASVs abundance file
+MSW_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSW_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSW_16S-18S-ITS/ITS-taxonomy.qza") 
+
+MSW_taxITS<-MSW_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSW_ITS <- phyloseq(
+  otu_table(MSW_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSW_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# clean up tax table
+tax_table(psMSW_ITS)[, colnames(tax_table(psMSW_ITS))] <- gsub(tax_table(psMSW_ITS)[, colnames(tax_table(psMSW_ITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+
+# DSW (16S, 18S and ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS 
+# DSW 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+DSW_md <- read.table("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/mapping_DSW.txt", 
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file
+DSW_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSW_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/16S-taxonomy.qza")
+
+DSW_tax16S <- DSW_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSW_16S <- phyloseq(
+  otu_table(DSW_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSW_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# DSW 18S 
+# Importing ASVs abundance file
+DSW_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSW_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/A-taxonomy.qza") 
+DSW_tax18S <- DSW_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSW_18S <- phyloseq(
+  otu_table(DSW_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSW_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# DSW ITS
+# Importing ASVs abundance file
+DSW_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSW_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSW_16S-18S-ITS/ITS-taxonomy.qza") 
+
+DSW_taxITS<-DSW_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSW_ITS <- phyloseq(
+  otu_table(DSW_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSW_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSW_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# clean up tax table
+tax_table(psDSW_ITS)[, colnames(tax_table(psDSW_ITS))] <- gsub(tax_table(psDSW_ITS)[, colnames(tax_table(psDSW_ITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+
+
+# USS (16S, 18S and ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS 
+# USS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+USS_md <- read.table("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/mapping_USS.txt", 
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file
+USS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/16S-taxonomy.qza") 
+
+USS_tax16S <- USS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSS_16S <- phyloseq(
+  otu_table(USS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psUSS_16S)
+otu_table(psUSS_16S)[1:5, 1:5]
+tax_table(psUSS_16S)[1:5, 1:4]
+ntaxa(psUSS_16S)
+
+# USS 18S 
+# Importing ASVs abundance file
+USS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/A-taxonomy.qza") 
+USS_tax18S <- USS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSS_18S <- phyloseq(
+  otu_table(USS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# USS ITS
+# Importing ASVs abundance file
+USS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+USS_taxITS<-USS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSS_ITS <- phyloseq(
+  otu_table(USS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+tax_table(psUSS_ITS)[, colnames(tax_table(psUSS_ITS))] <- gsub(tax_table(psUSS_ITS)[, colnames(tax_table(psUSS_ITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+
+# MSS (16S,18S,ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS
+# MSS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+MSS_md <- read.table("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/mapping_MSS.txt",
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file
+MSS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/16S-taxonomy.qza") 
+
+MSS_tax16S <- MSS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSS_16S <- phyloseq(
+  otu_table(MSS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# MSS 18S 
+# Importing ASVs abundance file
+MSS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/A-taxonomy.qza") 
+MSS_tax18S <- MSS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSS_18S <- phyloseq(
+  otu_table(MSS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+
+# MSS ITS
+# Importing ASVs abundance file
+MSS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+MSS_taxITS<-MSS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSS_ITS <- phyloseq(
+  otu_table(MSS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+tax_table(psMSS_ITS)[, colnames(tax_table(psMSS_ITS))] <- gsub(tax_table(psMSS_ITS)[, colnames(tax_table(psMSS_ITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+
+# DSS (16S, 18S and ITS) IMPORT FILES AND CREATE PHYLOSEQ OBJECTS -------------------------
+# DSS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+DSS_md <- read.table("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/mapping_DSS.txt", 
+                     sep='\t', header=T)
+
+# Importing ASVs abundance file
+DSS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/16S-taxonomy.qza") 
+
+DSS_tax16S <- DSS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSS_16S <- phyloseq(
+  otu_table(DSS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSS_16S)
+otu_table(psDSS_16S)[1:5, 1:5]
+tax_table(psDSS_16S)[1:5, 1:4]
+ntaxa(psDSS_16S)
+
+# DSS 18S 
+# Importing ASVs abundance file
+DSS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/A-taxonomy.qza") 
+DSS_tax18S <- DSS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSS_18S <- phyloseq(
+  otu_table(DSS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSS_18S)
+otu_table(psDSS_18S)[1:5, 1:5]
+tax_table(psDSS_18S)[1:5, 1:4]
+ntaxa(psDSS_18S)
+
+
+# DSS ITS
+# Importing ASVs abundance file
+DSS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+DSS_taxITS<-DSS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSS_ITS <- phyloseq(
+  otu_table(DSS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+tax_table(psDSS_ITS)[, colnames(tax_table(psDSS_ITS))] <- gsub(tax_table(psDSS_ITS)[, colnames(tax_table(psDSS_ITS))],
+                                                               pattern = "[a-z]__", replacement = "")
+
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSS_ITS)
+otu_table(psDSS_ITS)[1:5, 1:5]
+tax_table(psDSS_ITS)[1:5, 1:4]
+ntaxa(psDSS_ITS) 
+
+
+
+# UPSTREAM WATER AND SEDIMENTS (16S,18S,ITS) IMPORT FILES -------------
+# USWS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+USWS_md <- read.table("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/mapping_USWS.txt", 
+                      sep='\t', header=T)
+
+# Importing ASVs abundance file
+USWS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USWS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/16S-taxonomy.qza") 
+
+USWS_tax16S <- USWS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSWS_16S <- phyloseq(
+  otu_table(USWS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USWS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psUSWS_16S)
+otu_table(psUSWS_16S)[1:5, 1:5]
+tax_table(psUSWS_16S)[1:5, 1:4]
+ntaxa(psUSWS_16S)
+
+# USWS 18S 
+# Importing ASVs abundance file
+USWS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USWS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/A-taxonomy.qza") 
+USWS_tax18S <- USWS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSWS_18S <- phyloseq(
+  otu_table(USWS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USWS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psUSWS_18S)
+otu_table(psUSWS_18S)[1:5, 1:5]
+tax_table(psUSWS_18S)[1:5, 1:4]
+ntaxa(psUSWS_18S)
+
+# USWS ITS
+# Importing ASVs abundance file
+USWS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+USWS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/USWS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+USWS_taxITS<-USWS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psUSWS_ITS <- phyloseq(
+  otu_table(USWS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(USWS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(USWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# remove singletons
+psUSWS_ITS <- prune_taxa(taxa_sums(psUSWS_ITS)>1, psUSWS_ITS) 
+
+# filter/clean data 
+psUSWS_ITS <- subset_taxa(psUSWS_ITS, Kingdom == "k__Fungi")
+psUSWS_ITS <- subset_taxa(psUSWS_ITS, Phylum != "p__unidentified")
+psUSWS_ITS <- subset_taxa(psUSWS_ITS, Phylum != "NA") 
+
+# remove "unidentified" at Genus level. Make sure to create a new phyaeq
+psUSWS_ITS_Genus_unidentified_removed <- subset_taxa(psUSWS_ITS, Genus != "g__unidentified")
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psUSWS_ITS)
+otu_table(psUSWS_ITS)[1:5, 1:5]
+tax_table(psUSWS_ITS)[1:5, 1:4]
+ntaxa(psUSWS_ITS) 
+
+
+# MIDSTREAM WATER AND SEDIMENTS (16S,18S,ITS) IMPORT FILES --------
+# MSWS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+MSWS_md <- read.table("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/mapping_MSWS.txt", 
+                      sep='\t', header=T)
+
+# Importing ASVs abundance file
+MSWS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSWS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/16S-taxonomy.qza") 
+
+MSWS_tax16S <- MSWS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSWS_16S <- phyloseq(
+  otu_table(MSWS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSWS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psMSWS_16S)
+otu_table(psMSWS_16S)[1:5, 1:5]
+tax_table(psMSWS_16S)[1:5, 1:4]
+ntaxa(psMSWS_16S)
+
+# MSWS 18S 
+# Importing ASVs abundance file
+MSWS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSWS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/A-taxonomy.qza") 
+MSWS_tax18S <- MSWS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSWS_18S <- phyloseq(
+  otu_table(MSWS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSWS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psMSWS_18S)
+otu_table(psMSWS_18S)[1:5, 1:5]
+tax_table(psMSWS_18S)[1:5, 1:4]
+ntaxa(psMSWS_18S)
+
+# MSWS ITS
+# Importing ASVs abundance file
+MSWS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+MSWS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/MSWS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+MSWS_taxITS<-MSWS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psMSWS_ITS <- phyloseq(
+  otu_table(MSWS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(MSWS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(MSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psMSWS_ITS)
+otu_table(psMSWS_ITS)[1:5, 1:5]
+tax_table(psMSWS_ITS)[1:5, 1:4]
+ntaxa(psMSWS_ITS) 
+
+
+# DOWNSTREAM WATER AND SEDIMENTS (16S, 18S and ITS) IMPORT FILES --------
+# DSWS 16S 
+# Importing metadata (FOR 16S,18S and ITS) 
+DSWS_md <- read.table("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/mapping_DSWS.txt", 
+                      sep='\t', header=T)
+
+# Importing ASVs abundance file
+DSWS_SVs16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/final_filtered_16Sdada2.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSWS_taxtable_16S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/16S-taxonomy.qza") 
+
+DSWS_tax16S <- DSWS_taxtable_16S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSWS_16S <- phyloseq(
+  otu_table(DSWS_SVs16S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSWS_tax16S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSWS_16S)
+otu_table(psDSWS_16S)[1:5, 1:5]
+tax_table(psDSWS_16S)[1:5, 1:4]
+ntaxa(psDSWS_16S)
+
+# DSWS 18S 
+# Importing ASVs abundance file
+DSWS_SVs18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/final_filtered_Adada2table.qza") 
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSWS_taxtable_18S <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/A-taxonomy.qza") 
+DSWS_tax18S <- DSWS_taxtable_18S$data %>% as_tibble() %>%
+  mutate(Taxon=gsub("D_[0-9]__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column 
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSWS_18S <- phyloseq(
+  otu_table(DSWS_SVs18S$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSWS_tax18S) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSWS_18S)
+otu_table(psDSWS_18S)[1:5, 1:5]
+tax_table(psDSWS_18S)[1:5, 1:4]
+ntaxa(psDSWS_18S)
+
+# DSWS ITS
+# Importing ASVs abundance file
+DSWS_SVsITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/final_filtered_ITSdada2table.qza")
+
+# Importing taxonomy and create new tax table with the "confidence" column removed
+DSWS_taxtable_ITS <- read_qza("~/Desktop/bioinformatics/network_ALL/DSWS_16S-18S-ITS/ITS-taxonomy.qza") 
+
+DSWS_taxITS<-DSWS_taxtable_ITS$data %>% as_tibble() %>% 
+  mutate(Taxon=gsub("k_[0-9]__;__;__;__;__;__", "", Taxon)) %>% 
+  separate(Taxon, sep=";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) %>% 
+  mutate(Confidence=NULL) #removes confidence column
+
+# Creating phyloseq object (with the confidence already removed) 
+psDSWS_ITS <- phyloseq(
+  otu_table(DSWS_SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(DSWS_taxITS) %>%
+              column_to_rownames("Feature.ID") %>%
+              as.matrix()), #moving the taxonomy to the way phyloseq wants it
+  sample_data(DSWS_md%>% as.data.frame() %>%
+                column_to_rownames("id")))
+
+# check object (not needed for subsequent phyloseq object)
+summarize_phyloseq(psDSWS_ITS)
+otu_table(psDSWS_ITS)[1:5, 1:5]
+tax_table(psDSWS_ITS)[1:5, 1:4]
+ntaxa(psDSWS_ITS) 
+
+```
+
+
+# cross-kingdom analysis 
+```{r}
+
+# COOCURRENCES WATER ------------------------------------------------------
+# run SPIEC-EASI 
+# ALL - 16S, 18S, ITS 
+
+# upstream
+set.seed(1234567)
+seUSW_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_USW16S, psobj.f_USW18S, psobj.f_USWITS),
+  method='mb', nlambda=10,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# midstream
+set.seed(1234567)
+seMSW_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_MSW16S, psobj.f_MSW18S, psobj.f_MSWITS),
+  method='mb', nlambda=20,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# downstream
+set.seed(1234567)
+seDSW_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_DSW16S, psobj.f_DSW18S, psobj.f_DSWITS),
+  method='mb', nlambda=10,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# convert the output of SPIEC-EASI into a network 
+# first, merge phyloseq objects 
+
+# upstream
+ps_f_USW16S_18S_ITS <- merge_phyloseq(
+  psobj.f_USW16S, psobj.f_USW18S, psobj.f_USWITS) 
+# midstream
+ps_f_MSW16S_18S_ITS <- merge_phyloseq(
+  psobj.f_MSW16S, psobj.f_MSW18S, psobj.f_MSWITS)
+# downstream
+ps_f_DSW16S_18S_ITS <- merge_phyloseq(
+  psobj.f_DSW16S, psobj.f_DSW18S, psobj.f_DSWITS)
+
+
+# obtain igraph from se-network output 
+# upstream
+igUSW_16S_18S_ITS <- adj2igraph(getRefit(seUSW_16S_18S_ITS), 
+                                 vertex.attr=list(name=taxa_names(ps_f_USW16S_18S_ITS)))
+
+plot_network(igUSW_16S_18S_ITS, ps_f_USW16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+# midstream
+igMSW_16S_18S_ITS <- adj2igraph(getRefit(seMSW_16S_18S_ITS), 
+                                vertex.attr=list(name=taxa_names(ps_f_MSW16S_18S_ITS)))
+
+plot_network(igMSW_16S_18S_ITS, ps_f_MSW16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+# downstream
+igDSW_16S_18S_ITS <- adj2igraph(getRefit(seDSW_16S_18S_ITS), 
+                                vertex.attr=list(name=taxa_names(ps_f_DSW16S_18S_ITS)))
+
+plot_network(igDSW_16S_18S_ITS, ps_f_DSW16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+
+# COOCURRENCES SEDIMENTS --------------------------------------------------
+# run SPIEC-EASI 
+# ALL - 16S, 18S, ITS 
+
+# upstream
+set.seed(1234567)
+seUSS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_USS16S, psobj.f_USS18S, psobj.f_USSITS),
+  method='mb', nlambda=10,
+  lambda.min.ratio=3e-1, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# midstream
+set.seed(1234567)
+seMSS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_MSS16S, psobj.f_MSS18S, psobj.f_MSSITS),
+  method='mb', nlambda=7,
+  lambda.min.ratio=5e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# downstream
+set.seed(1234567)
+seDSS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_DSS16S, psobj.f_DSS18S, psobj.f_DSSITS),
+  method='mb', nlambda=7,
+  lambda.min.ratio=5e-3, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# convert the output of SPIEC-EASI into a network 
+# first, merge phyloseq objects
+
+# upstream
+ps_f_USS16S_18S_ITS <- merge_phyloseq(
+  psobj.f_USS16S, psobj.f_USS18S, psobj.f_USSITS) 
+# midstream
+ps_f_MSS16S_18S_ITS <- merge_phyloseq(
+  psobj.f_MSS16S, psobj.f_MSS18S, psobj.f_MSSITS)
+# downstream
+ps_f_DSS16S_18S_ITS <- merge_phyloseq(
+  psobj.f_DSS16S, psobj.f_DSS18S, psobj.f_DSSITS)
+
+
+# obtain igraph from se-network output 
+# upstream
+igUSS_16S_18S_ITS <- adj2igraph(getRefit(seUSS_16S_18S_ITS), 
+                                vertex.attr=list(name=taxa_names(ps_f_USS16S_18S_ITS)))
+
+plot_network(igUSS_16S_18S_ITS, ps_f_USS16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+# midstream
+igMSS_16S_18S_ITS <- adj2igraph(getRefit(seMSS_16S_18S_ITS), 
+                                vertex.attr=list(name=taxa_names(ps_f_MSS16S_18S_ITS)))
+
+plot_network(igMSS_16S_18S_ITS, ps_f_MSS16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+# downstream
+igDSS_16S_18S_ITS <- adj2igraph(getRefit(seDSS_16S_18S_ITS), 
+                                vertex.attr=list(name=taxa_names(ps_f_DSS16S_18S_ITS)))
+
+plot_network(igDSS_16S_18S_ITS, ps_f_DSS16S_18S_ITS,
+             type='taxa',color="Phylum",shape="Kingdom",label=NULL) 
+
+
+# COOCURRENCES USWS ----------------------------------------------
+# run SPIEC-EASI 
+# ALL - 16S, 18S, ITS
+set.seed(1234567)
+seUSWS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_USWS16S, psobj.f_USWS18S, psobj.f_USWSITS),
+  method='mb', nlambda=10,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# convert the output of SPIEC-EASI into a network 
+# first, merge paired phyloseq objects
+ps_f_USWS16S_18S_ITS <- merge_phyloseq(psobj.f_USWS16S,
+                                       psobj.f_USWS18S,
+                                       psobj.f_USWSITS)
+
+# obtain igraph from se-network output
+igUSWS_16S_18S_ITS <- adj2igraph(getRefit(seUSWS_16S_18S_ITS), 
+                                 vertex.attr=list(name=taxa_names(ps_f_USWS16S_18S_ITS)))
+
+plot_network(igUSWS_16S_18S_ITS, ps_f_USWS16S_18S_ITS,
+             type='taxa', color="Phylum", label=NULL)
+
+
+# COOCURRENCES MSWS ---------------------------------------------
+# run SPIEC-EASI 
+# ALL - 16S, 18S, ITS
+set.seed(1234567)
+seMSWS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_MSWS16S, psobj.f_MSWS18S, psobj.f_MSWSITS),
+  method='mb', nlambda=20,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# convert the output of SPIEC-EASI into a network 
+# first, merge paired phyloseq objects
+ps_f_MSWS16S_18S_ITS <- merge_phyloseq(psobj.f_MSWS16S,
+                                       psobj.f_MSWS18S,
+                                       psobj.f_MSWSITS)
+
+# obtain igraph from se-network output
+igMSWS_16S_18S_ITS <- adj2igraph(getRefit(seMSWS_16S_18S_ITS), 
+                             vertex.attr=list(name=taxa_names(ps_f_MSWS16S_18S_ITS)))
+
+plot_network(igMSWS_16S_18S_ITS, ps_f_MSWS16S_18S_ITS,
+             type='taxa', color="Phylum", label=NULL)
+
+
+# COOCURRENCES DSWS ----------------------------------------------
+# run SPIEC-EASI
+
+# 16S and 18S
+set.seed(1234567)
+seDSWS_16S_18S_ITS <- spiec.easi(
+  list(psobj.f_DSWS16S, psobj.f_DSWS18S, psobj.f_DSWSITS),
+  method='mb', nlambda=20,
+  lambda.min.ratio=1e-2, pulsar.params = list(thresh = 0.01, ncores=4)) 
+
+# convert the output of SPIEC-EASI into a network 
+# first, merge paired phyloseq objects
+ps_f_DSWS16S_18S_ITS <- merge_phyloseq(psobj.f_MSWS16S,
+                                       psobj.f_MSWS18S,
+                                       psobj.f_MSWSITS)
+
+# obtain igraph from se-network output
+igDSWS_16S_18S_ITS <- adj2igraph(getRefit(seDSWS_16S_18S_ITS), 
+                             vertex.attr=list(name=taxa_names(ps_f_DSWS16S_18S_ITS)))
+
+plot_network(igDSWS_16S_18S_ITS, ps_f_DSWS16S_18S_ITS,
+             type='taxa', color="Phylum", label=NULL) 
+
+```
+
+
+# stat analysis surface water and sediments 
+```{r}
+# STATISTICAL ANALYSIS WATER --------------------------------------
+# determine positive and negative edges SPIEC-EASI inferred
+
+# USW-16S-18S-ITS 
+betaMatUSW_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seUSW_16S_18S_ITS)))
+
+# MSW-16S-18S-ITS 
+betaMatMSW_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seMSW_16S_18S_ITS)))
+
+# DSW-16S-18S-ITS 
+betaMatDSW_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seDSW_16S_18S_ITS)))
+
+
+# obtain the number of edges in the network from the matrix of regression 
+# coefficients. Also, divide by two since an edge is represented by two 
+# entries in the matrix.
+
+# upstream
+positiveUSW_16S_18S_ITS=length(betaMatUSW_16S_18S_ITS[betaMatUSW_16S_18S_ITS>0])/2
+### 985 
+negativeUSW_16S_18S_ITS=length(betaMatUSW_16S_18S_ITS[betaMatUSW_16S_18S_ITS<0])/2
+### 477
+totalUSW_16S_18S_ITS=length(betaMatUSW_16S_18S_ITS[betaMatUSW_16S_18S_ITS!=0])/2
+### 1462
+
+# midstream
+positiveMSW_16S_18S_ITS=length(betaMatMSW_16S_18S_ITS[betaMatMSW_16S_18S_ITS>0])/2
+### 952
+negativeMSW_16S_18S_ITS=length(betaMatMSW_16S_18S_ITS[betaMatMSW_16S_18S_ITS<0])/2
+### 467
+totalMSW_16S_18S_ITS=length(betaMatMSW_16S_18S_ITS[betaMatMSW_16S_18S_ITS!=0])/2
+### 1419
+
+# downstream 
+positiveDSW_16S_18S_ITS=length(betaMatDSW_16S_18S_ITS[betaMatDSW_16S_18S_ITS>0])/2
+### 740
+negativeDSW_16S_18S_ITS=length(betaMatDSW_16S_18S_ITS[betaMatDSW_16S_18S_ITS<0])/2
+### 357
+totalDSW_16S_18S_ITS=length(betaMatDSW_16S_18S_ITS[betaMatDSW_16S_18S_ITS!=0])/2
+### 1097
+
+
+# evaluate the weight on edges networks using the terms from the underlying model (mb)
+library(Matrix)
+
+sebetaUSW_16S_18S_ITS <- symBeta(getOptBeta(seUSW_16S_18S_ITS), mode='maxabs') 
+sebetaMSW_16S_18S_ITS <- symBeta(getOptBeta(seMSW_16S_18S_ITS), mode='maxabs') 
+sebetaDSW_16S_18S_ITS <- symBeta(getOptBeta(seDSW_16S_18S_ITS), mode='maxabs') 
+
+elistUSW_16S_18S_ITS <- summary(sebetaUSW_16S_18S_ITS)
+elistMSW_16S_18S_ITS <- summary(sebetaMSW_16S_18S_ITS)
+elistDSW_16S_18S_ITS <- summary(sebetaDSW_16S_18S_ITS)
+
+hist(elistUSW_16S_18S_ITS[,3], main='Surface water microbiome weights of network edges across urbanization gradients', 
+     xlab='Edge weights', col = 'forestgreen')
+hist(elistMSW_16S_18S_ITS[,3], add=TRUE, col='blue')
+hist(elistDSW_16S_18S_ITS[,3], add=TRUE, col='red') 
+
+labels_water <- c("UPSTREAM","MIDSTREAM","DOWNSTREAM") 
+
+hist(elistUSW_16S_18S_ITS[,3], main="SURFACE WATER MICROBIOME WEIGHTS OF NETWORK EDGES", 
+     xlab='Node Edge Weights', col = 'forestgreen', lwd=3)
+hist(elistMSW_16S_18S_ITS[,3], add=TRUE, col='blue',lwd=3)
+hist(elistDSW_16S_18S_ITS[,3], add=TRUE, col='red',lwd=3)
+legend("topright", legend = labels_water,
+       cex=1.8, #legend box size
+       inset = 0.01, #distance of text from box
+       pch = 15, #shape of the symbol
+       col = c('forestgreen','blue','red')) 
+
+# degree statistics inferred from the networks
+ddUSW_16S_18S_ITS <- degree.distribution(igUSW_16S_18S_ITS)
+ddMSW_16S_18S_ITS <- degree.distribution(igMSW_16S_18S_ITS)
+ddDSW_16S_18S_ITS <- degree.distribution(igDSW_16S_18S_ITS)
+
+plot(0:(length(ddUSW_16S_18S_ITS)-1), ddUSW_16S_18S_ITS, ylim=c(0,.50), type='b',
+     ylab="Frequency", xlab="Degree", 
+     main="Surface water microbiome network-DD across urbanization gradients")
+points(0:(length(ddMSW_16S_18S_ITS)-1), ddMSW_16S_18S_ITS, col="red" , type='b')
+points(0:(length(ddDSW_16S_18S_ITS)-1), ddDSW_16S_18S_ITS, col="forestgreen", type='b')
+legend("topright", c("UPSTREAM", 
+                     "MIDSTREAM", 
+                     "DOWNSTREAM"),
+       col=c("forestgreen", "red", "black"), pch=1, lty=1)
+
+
+# STATISTICAL ANALYSIS SEDIMENTS ----------------------------------
+# determine positive and negative edges SPIEC-EASI inferred, using the 
+
+# USS-16S-18S-ITS 
+betaMatUSS_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seUSS_16S_18S_ITS)))
+
+# MSS-16S-18S-ITS 
+betaMatMSS_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seMSS_16S_18S_ITS)))
+
+# DSS-16S-18S-ITS 
+betaMatDSS_16S_18S_ITS=as.matrix(symBeta(getOptBeta(seDSS_16S_18S_ITS)))
+
+# obtain the number of edges in the network from the matrix of regression 
+# coefficients. Also, divide by two since an edge is represented by two 
+# entries in the matrix.
+
+# upstream
+positiveUSS_16S_18S_ITS=length(betaMatUSS_16S_18S_ITS[betaMatUSS_16S_18S_ITS>0])/2
+### 441
+negativeUSS_16S_18S_ITS=length(betaMatUSS_16S_18S_ITS[betaMatUSS_16S_18S_ITS<0])/2
+### 184
+totalUSS_16S_18S_ITS=length(betaMatUSS_16S_18S_ITS[betaMatUSS_16S_18S_ITS!=0])/2
+### 625
+
+# midstream
+positiveMSS_16S_18S_ITS=length(betaMatMSS_16S_18S_ITS[betaMatMSS_16S_18S_ITS>0])/2
+### 1722
+negativeMSS_16S_18S_ITS=length(betaMatMSS_16S_18S_ITS[betaMatMSS_16S_18S_ITS<0])/2
+### 945
+totalMSS_16S_18S_ITS=length(betaMatMSS_16S_18S_ITS[betaMatMSS_16S_18S_ITS!=0])/2
+### 2667
+
+# downstream 
+positiveDSS_16S_18S_ITS=length(betaMatDSS_16S_18S_ITS[betaMatDSS_16S_18S_ITS>0])/2
+### 1893
+negativeDSS_16S_18S_ITS=length(betaMatDSS_16S_18S_ITS[betaMatDSS_16S_18S_ITS<0])/2
+### 983
+totalDSS_16S_18S_ITS=length(betaMatDSS_16S_18S_ITS[betaMatDSS_16S_18S_ITS!=0])/2
+### 2876
+
+# evaluate the weight on edges networks using the terms from the uderlying model (mb)
+library(Matrix)
+sebetaUSS_16S_18S_ITS <- symBeta(getOptBeta(seUSS_16S_18S_ITS), mode='maxabs') 
+sebetaMSS_16S_18S_ITS <- symBeta(getOptBeta(seMSS_16S_18S_ITS), mode='maxabs') 
+sebetaDSS_16S_18S_ITS <- symBeta(getOptBeta(seDSS_16S_18S_ITS), mode='maxabs') 
+
+elistUSS_16S_18S_ITS <- summary(sebetaUSS_16S_18S_ITS)
+elistMSS_16S_18S_ITS <- summary(sebetaMSS_16S_18S_ITS)
+elistDSS_16S_18S_ITS <- summary(sebetaDSS_16S_18S_ITS)
+
+hist(elistDSS_16S_18S_ITS[,3], main='Sediments microbiome weights of network edges across urbanization gradients', 
+     xlab='Edge weights', col = 'red') # changed the "main" to DS as it had the highest frequencies
+hist(elistMSS_16S_18S_ITS[,3], add=TRUE, col='blue')
+hist(elistUSS_16S_18S_ITS[,3], add=TRUE, col='forestgreen') 
+
+labels_seds <- c("UPSTREAM","MIDSTREAM","DOWNSTREAM") 
+
+hist(elistDSS_16S_18S_ITS[,3], main='SEDIMENTS MICROBIOME WEIGHTS OF NETWORK EDGES', 
+     xlab='Edge Weights', col = 'red', lwd=3)
+hist(elistMSS_16S_18S_ITS[,3], add=TRUE, col='blue', lwd=3)
+hist(elistUSS_16S_18S_ITS[,3], add=TRUE, col='forestgreen', lwd=3) 
+legend("topright", legend = labels_seds,
+       cex=1.8, #legend box size
+       inset = 0.01, #distance of text from box
+       pch = 15, #shape of the symbol
+       col = c('forestgreen','blue','red')) 
+
+# degree statistics inferred from the networks
+ddUSS_16S_18S_ITS <- degree.distribution(igUSS_16S_18S_ITS)
+ddMSS_16S_18S_ITS <- degree.distribution(igMSS_16S_18S_ITS)
+ddDSS_16S_18S_ITS <- degree.distribution(igDSS_16S_18S_ITS) 
+
+plot(0:(length(ddDSS_16S_18S_ITS)-1), ddDSS_16S_18S_ITS, ylim=c(0,.50), type='b',
+     ylab="Frequency", xlab="Degree", col="forestgreen",
+     main="Sediments microbiome network-DD across urbanization gradients")
+points(0:(length(ddMSS_16S_18S_ITS)-1), ddMSS_16S_18S_ITS, col="red" , type='b')
+points(0:(length(ddUSS_16S_18S_ITS)-1), ddUSS_16S_18S_ITS, col="black", type='b')
+legend("topright", c("UPSTREAM", 
+                     "MIDSTREAM", 
+                     "DOWNSTREAM"),
+       col=c("forestgreen", "red", "black"), pch=1, lty=1) 
+
+
+# STATISTICAL ANALYSIS USWS, MSWS, DSWS ---------------------------
+# not needed. All networks already performed individually
+
+```
+
+
+# cross-kingdom network plots 
+```{r}
+# USW PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+USW_16S_18S_ITS_class <- tax_glom(ps_f_USW16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabUSW_16S_18S_ITS <- as(tax_table(USW_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+USW16S_18S_ITSclass_renamed <- renameTaxa(USW_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netUSW_class <- netConstruct(USW16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsUSW_class <- netAnalyze(netUSW_class, clustMethod = "cluster_fast_greedy")
+
+# Network plots
+# Modifications:
+# Fruchterman-Reingold layout algorithm from igraph package used (passed to 
+# plot as matrix)
+# Shortened labels (using the “intelligent” method, which avoids duplicates)
+# Fixed node sizes, where hubs are enlarged
+# Node color is gray for all nodes (transparancy is lower for hub nodes by default)
+
+# Compute layout
+graph_USW <- igraph::graph_from_adjacency_matrix(netUSW_class$adjaMat1, 
+                                                 weighted = TRUE)
+
+set.seed(1234567)
+lay_fr_USW <- igraph::layout_with_fr(graph_USW)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_USW) <- rownames(netUSW_class$adjaMat1)
+
+plot(propsUSW_class,
+     layout = lay_fr_USW,
+     shortenLabels = "intelligent",
+     labelLength = 10,
+     labelPattern = c(5, "'", 3, "'", 3),
+     nodeSize = "fix",
+     nodeColor = "darkgray",
+     cexNodes = 0.9,
+     cexHubs = 1.7,
+     cexLabels = 1.1,
+     title1 = "USW cross-domain microbial network on class level", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.6, 1.1, cex = 1.2, title = "USW estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+# to optimise plot, make further adjustments:
+# This time, the Fruchterman-Reingold layout algorithm is computed within 
+# the plot function and thus applied to the “reduced” network without 
+# singletons. Labels are not scaled to node sizes
+# Single nodes are removed
+# Node sizes are scaled to the column sums of clr-transformed data
+# Node colors represent the determined clusters
+# Border color of hub nodes is changed from black to darkgray (changed back to black)
+# Label size of hubs is enlarged
+
+
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netUSW_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+# to improve our plot, we use the following modifications:
+# This time, choose the “spring” layout as part of qgraph() (the function is 
+# generally used for network plotting in NetCoMi)
+# A repulsion value below 1 places the nodes further apart
+# Labels are not shortened anymore
+# Nodes (bacteria on class level) are colored according to the respective phylum
+# Edges representing positive associations are colored in blue, negative ones in 
+# orange (just to give an example for alternative edge coloring). 
+# Transparency is increased for edges with high weight to improve the readability of node labels
+
+# Get phylum names
+taxtabUSW_16S_18S_ITS <- as(tax_table(USW16S_18S_ITSclass_renamed), "matrix")
+phylaUSW <- as.factor(gsub("p__", "", taxtabUSW_16S_18S_ITS[, "Phylum"]))
+names(phylaUSW) <- taxtabUSW_16S_18S_ITS[, "Class"] 
+
+table(phylaUSW) #get number of colours to assign based on the number of phylum present.
+
+# Define phylum colors (USW identified 29 phylum).
+colors()
+kingdomcol_USW
+
+colors()
+phylcol_USW <- c("cyan", "blue3", "red", "lawngreen", "yellow", 
+                 "deeppink", "maroon3", "rosybrown", "darkmagenta", "orange1",
+                 "orange", "grey50", "brown2", "#eecd40", "darkgreen", 
+                 "#26adba", "#4665e7", "#fa7fd0", "#a61932", "yellowgreen",
+                 "mistyrose", "plum", "orangered4", "turquoise3", "darkblue",
+                 "violet", "blue4", "violetred", "slateblue")
+
+plot(propsUSW_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 4,
+     nodeColor = "feature", 
+     featVecCol = phylaUSW, 
+     colorVec =  phylcol_USW,
+     posCol = "darkgreen", 
+     negCol = "red",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 2,
+     cexLabels = 2,
+     cexHubLabels = 2.5,
+     title1 = "USW cross-domain microbial network on class level", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transpUSW <- colToTransp(phylcol_USW, 60)
+
+legend(-1.2, 1.2, cex = 2, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phylaUSW), col = phylcol_transpUSW, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "USW estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkgreen","red"), 
+       bty = "n", horiz = TRUE)
+
+
+### network is dense. Use kingdom level 
+# Get kingdom names 
+
+# Get kingdom names
+taxtabUSW_16S_18S_ITS <- as(tax_table(USW16S_18S_ITSclass_renamed), "matrix")
+kingdomUSW <- as.factor(gsub("k__", "", taxtabUSW_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomUSW) <- taxtabUSW_16S_18S_ITS[, "Class"] 
+table(kingdomUSW) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria   dummy    Eukaryota   Fungi 
+### 1         27         1        12           16     
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+
+colors()
+kingdomcol_USW <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsUSW_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomUSW, 
+     colorVec =  kingdomcol_USW,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.3,
+     cexHubLabels = 3.0,
+     title1 = "USW CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpUSW <- colToTransp(kingdomcol_USW, 60)
+
+legend(-1.2, 1.2, cex = 2.7, pt.cex = 2.5, title = "Kingdom:", 
+       legend=levels(kingdomUSW), col = kingdomcol_transpUSW, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "USW estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+### NB. Try and remove the "dummy" taxa from plots, or change to "control".
+
+
+# MSW PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+MSW_16S_18S_ITS_class <- tax_glom(ps_f_MSW16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabMSW_16S_18S_ITS <- as(tax_table(MSW_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+MSW16S_18S_ITSclass_renamed <- renameTaxa(MSW_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netMSW_class <- netConstruct(MSW16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsMSW_class <- netAnalyze(netMSW_class, clustMethod = "cluster_fast_greedy")
+
+
+# Network plots 
+# Compute layout
+graph_MSW <- igraph::graph_from_adjacency_matrix(netMSW_class$adjaMat1, 
+                                                 weighted = TRUE)
+
+set.seed(1234567)
+lay_fr_MSW <- igraph::layout_with_fr(graph_MSW)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_MSW) <- rownames(netMSW_class$adjaMat1)
+
+
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netMSW_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+# improve plot further
+# phylum was dense so proceed with "kingdom" level instead
+### use kingdom level 
+
+# Get kingdom names
+taxtabMSW_16S_18S_ITS <- as(tax_table(MSW16S_18S_ITSclass_renamed), "matrix")
+kingdomMSW <- as.factor(gsub("k__", "", taxtabMSW_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomMSW) <- taxtabMSW_16S_18S_ITS[, "Class"] 
+table(kingdomMSW) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria    Eukaryota    Fungi 
+###   1         36          7           12     
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+colors()
+kingdomcol_MSW <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsMSW_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomMSW, 
+     colorVec =  kingdomcol_MSW,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.3,
+     cexHubLabels = 3.0,
+     title1 = "MSW CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpMSW <- colToTransp(kingdomcol_MSW, 60)
+
+legend(-1.22, 1.2, cex = 2.7, pt.cex = 2.5, title = "Kingdom:", 
+       legend=levels(kingdomMSW), col = kingdomcol_transpMSW, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "MSW estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+
+# DSW PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+DSW_16S_18S_ITS_class <- tax_glom(ps_f_DSW16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabDSW_16S_18S_ITS <- as(tax_table(DSW_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+DSW16S_18S_ITSclass_renamed <- renameTaxa(DSW_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netDSW_class <- netConstruct(DSW16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsDSW_class <- netAnalyze(netDSW_class, clustMethod = "cluster_fast_greedy")
+
+# Network plots 
+# Compute layout
+graph_DSW <- igraph::graph_from_adjacency_matrix(netDSW_class$adjaMat1, 
+                                                 weighted = TRUE) 
+
+set.seed(1234567)
+lay_fr_DSW <- igraph::layout_with_fr(graph_DSW)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_DSW) <- rownames(netDSW_class$adjaMat1)
+
+
+# to optimise plot, make further adjustments:
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netDSW_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+### network is dense. Use kingdom level 
+
+# Get kingdom names
+taxtabDSW_16S_18S_ITS <- as(tax_table(DSW16S_18S_ITSclass_renamed), "matrix")
+kingdomDSW <- as.factor(gsub("k__", "", taxtabDSW_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomDSW) <- taxtabDSW_16S_18S_ITS[, "Class"] 
+table(kingdomDSW) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria    Eukaryota    Fungi 
+###   1         21          7           14  
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+kingdomcol_DSW <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsDSW_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomDSW, 
+     colorVec =  kingdomcol_DSW,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.5,
+     cexHubLabels = 3.5,
+     title1 = "DSW CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpDSW <- colToTransp(kingdomcol_DSW, 60)
+
+legend(-1.2, 1.2, cex = 2.7, pt.cex = 2.7, title = "Kingdom:", 
+       legend=levels(kingdomDSW), col = kingdomcol_transpDSW, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "DSW estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+
+# USS PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+USS_16S_18S_ITS_class <- tax_glom(ps_f_USS16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabUSS_16S_18S_ITS <- as(tax_table(USS_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+USS16S_18S_ITSclass_renamed <- renameTaxa(USS_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netUSS_class <- netConstruct(USS16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsUSS_class <- netAnalyze(netUSS_class, clustMethod = "cluster_fast_greedy")
+
+
+# Network plots 
+# Compute layout
+graph_USS <- igraph::graph_from_adjacency_matrix(netUSS_class$adjaMat1, 
+                                                 weighted = TRUE) 
+
+set.seed(1234567)
+lay_fr_USS <- igraph::layout_with_fr(graph_USS)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_USS) <- rownames(netUSS_class$adjaMat1) 
+
+
+# to optimise plot, make further adjustments:
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netUSS_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+# improve plot further
+# Get kingdom names
+taxtabUSS_16S_18S_ITS <- as(tax_table(USS16S_18S_ITSclass_renamed), "matrix")
+kingdomUSS <- as.factor(gsub("k__", "", taxtabUSS_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomUSS) <- taxtabUSS_16S_18S_ITS[, "Class"] 
+table(kingdomUSS) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria    Eukaryota    Fungi 
+###   5         39          14           13  
+
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+kingdomcol_USS <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsUSS_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomUSS, 
+     colorVec =  kingdomcol_USS,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.2,
+     cexHubLabels = 3.0,
+     title1 = "USS CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpUSS <- colToTransp(kingdomcol_USS, 60)
+
+legend(-1.2, 1.2, cex = 2.5, pt.cex = 2.5, title = "Kingdom:", 
+       legend=levels(kingdomUSS), col = kingdomcol_transpUSS, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "USS estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+
+# MSS PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+MSS_16S_18S_ITS_class <- tax_glom(ps_f_MSS16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabMSS_16S_18S_ITS <- as(tax_table(MSS_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+MSS16S_18S_ITSclass_renamed <- renameTaxa(MSS_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netMSS_class <- netConstruct(MSS16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsMSS_class <- netAnalyze(netMSS_class, clustMethod = "cluster_fast_greedy")
+
+
+# Network plots 
+# Compute layout
+graph_MSS <- igraph::graph_from_adjacency_matrix(netMSS_class$adjaMat1, 
+                                                 weighted = TRUE) 
+
+set.seed(1234567)
+lay_fr_MSS <- igraph::layout_with_fr(graph_MSS)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_MSS) <- rownames(netMSS_class$adjaMat1)
+
+
+# optimise plot, make further adjustments:
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netMSS_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+# improve plot further
+# Get kingdom names
+taxtabMSS_16S_18S_ITS <- as(tax_table(MSS16S_18S_ITSclass_renamed), "matrix")
+kingdomMSS <- as.factor(gsub("k__", "", taxtabMSS_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomMSS) <- taxtabMSS_16S_18S_ITS[, "Class"] 
+table(kingdomMSS) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria    Eukaryota    Fungi 
+###   1         55          10          13  
+
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+kingdomcol_MSS <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsMSS_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomMSS, 
+     colorVec =  kingdomcol_MSS,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.2,
+     cexHubLabels = 3.0,
+     title1 = "MSS CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpMSS <- colToTransp(kingdomcol_MSS, 60)
+
+legend(-1.22, 1.15, cex = 2.6, pt.cex = 2.5, title = "Kingdom:", 
+       legend=levels(kingdomMSS), col = kingdomcol_transpMSS, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "MSS estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+
+# DSS PLOTS ----------------------------------------------------
+# first a network where OTUs are agglomerated to genera 
+# Agglomerate to Class level (might try Phylum level if network is too dense)
+DSS_16S_18S_ITS_class <- tax_glom(ps_f_DSS16S_18S_ITS, taxrank = "Class")
+
+# Taxonomic table
+taxtabDSS_16S_18S_ITS <- as(tax_table(DSS_16S_18S_ITS_class), "matrix")
+
+# Rename taxonomic table and make "class" column unique
+DSS16S_18S_ITSclass_renamed <- renameTaxa(DSS_16S_18S_ITS_class, 
+                                          pat = "<name>", 
+                                          substPat = "<name>_<subst_name>(<subst_R>)",
+                                          numDupli = "Class") 
+
+# Network construction and analysis
+netDSS_class <- netConstruct(DSS16S_18S_ITSclass_renamed,
+                             taxRank = "Class",
+                             measure = "pearson",
+                             zeroMethod = "multRepl",
+                             normMethod = "clr",
+                             sparsMethod = "threshold",
+                             thresh = 0.3,
+                             verbose = 3)
+
+propsDSS_class <- netAnalyze(netDSS_class, clustMethod = "cluster_fast_greedy")
+
+# Network plots 
+# Compute layout
+graph_DSS <- igraph::graph_from_adjacency_matrix(netDSS_class$adjaMat1, 
+                                                 weighted = TRUE) 
+
+set.seed(1234567)
+lay_fr_DSS <- igraph::layout_with_fr(graph_DSS)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr_DSS) <- rownames(netDSS_class$adjaMat1)
+
+
+# to optimise plot, make further adjustments:
+# check whether the largest nodes are actually those with highest column sums 
+# in the matrix with normalized counts returned by netConstruct().
+
+sort(colSums(netDSS_class$normCounts1), decreasing = TRUE)[1:11]
+
+
+# improve plot further
+# Get kingdom names
+taxtabDSS_16S_18S_ITS <- as(tax_table(DSS16S_18S_ITSclass_renamed), "matrix")
+kingdomDSS <- as.factor(gsub("k__", "", taxtabDSS_16S_18S_ITS[, "Kingdom"])) 
+
+names(kingdomDSS) <- taxtabDSS_16S_18S_ITS[, "Class"] 
+table(kingdomDSS) #get number of colours to assign based on the number of phylum present.
+### kingdomUSW
+### Archaea  Bacteria    Eukaryota    Fungi 
+###   2         54          18          10  
+
+
+# Define kingdom colors (USW identified 29 phylum, but kingdom=5 (including the "dummy")).
+kingdomcol_DSS <- c("#fa7fd0", "blue3", "forestgreen", "#a61932") 
+
+plot(propsDSS_class,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "c__",
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 5,
+     nodeColor = "feature", 
+     featVecCol = kingdomDSS, 
+     colorVec =  kingdomcol_DSS,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 4.5,
+     cexLabels = 2.2,
+     cexHubLabels = 3.0,
+     title1 = "DSS CROSS-DOMAIN NETWORK", 
+     showTitle = TRUE,
+     cexTitle = 5.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+kingdomcol_transpDSS <- colToTransp(kingdomcol_DSS, 60)
+
+legend(-1.2, 1.2, cex = 2.7, pt.cex = 2.5, title = "Kingdom:", 
+       legend=levels(kingdomDSS), col = kingdomcol_transpDSS, bty = "n", pch = 16) 
+
+legend(0.4, 1.2, cex = 2.5, title = "DSS estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+```
+
+
+# cross-kingdom comparison tests 
+```{r}
+
+# USW-USS (WATER-SEDIMENTS) COMPARISON ANALYSIS -------------------
+
+assoMat_USW <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seUSW_16S_18S_ITS), mode = "ave")
+assoMat_USS <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seUSS_16S_18S_ITS), mode = "ave")
+
+assoMat_USW <- as.matrix(assoMat_USW)
+assoMat_USS <- as.matrix(assoMat_USS)
+
+# Get taxa names
+taxnames_USW_USS <- c(taxa_names(ps_f_USW16S_18S_ITS),
+                    taxa_names(ps_f_USS16S_18S_ITS))
+
+
+colnames(assoMat_USW) <- rownames(assoMat_USW) <- taxnames_USW_USS
+diag(assoMat_USW) <- 1 
+colnames(assoMat_USS) <- rownames(assoMat_USS) <- taxnames_USW_USS
+diag(assoMat_USS) <- 1 
+
+# NetCoMi workflow 
+# Network construction (pass association matrices to netConstruct)
+# - sparsMethod must be set to "none" because sparsification is already included in SpiecEasi
+netUSW_USS <- netConstruct(data = assoMat_USW, 
+                                   data2 = assoMat_USS, 
+                                 dataType = "condDependence", 
+                                 sparsMethod = "none")
+
+# Network analysis. commands/terminology meanings: 
+## centrLCC = FALSE: Centralities are calculated for all nodes (not only 
+# for the largest connected component).
+# avDissIgnoreInf = TRUE: Nodes with an infinite dissimilarity are ignored 
+# when calculating the average dissimilarity.
+# sPathNorm = FALSE: Shortest paths are not normalized by average dissimilarity.
+# hubPar = c("degree", "eigenvector"): Hubs are nodes with highest degree 
+# and eigenvector centrality at the same time.
+# lnormFit = TRUE and hubQuant = 0.9: A log-normal distribution is fitted 
+# to the centrality values to identify nodes with “highest” centrality values. 
+# Here, a node is identified as hub if for each of the three centrality 
+# measures, the node’s centrality value is above the 90% quantile of the 
+# fitted log-normal distribution.
+
+netprops_USW_USS <- netAnalyze(netUSW_USS, 
+                               centrLCC = FALSE,
+                               avDissIgnoreInf = TRUE,
+                               sPathNorm = FALSE,
+                               clustMethod = "cluster_fast_greedy",
+                               hubPar = c("degree", "eigenvector"),
+                               hubQuant = 0.9,
+                               lnormFit = TRUE,
+                               normDeg = FALSE,
+                               normBetw = FALSE,
+                               normClose = FALSE,
+                               normEigen = FALSE) 
+
+# extract the results of "netAnalyze" 
+summary(netprops_USW_USS)
+
+
+### edit graphs to include actual titles, etc (if time permits)
+# edit/plot manually (if time permits) ### DO NOT RUN
+plotHeat(mat = c(netprops_USW_USS$graphletLCC$gcm1),
+         pmat = netprops_USW_USS$graphletLCC$pAdjust1,
+         type = "mixed",
+         title = c("USW","USS"), 
+         colorLim = c(-1, 1),
+         mar = c(2, 0, 2, 0)) 
+# Add rectangles highlighting the four types of orbits
+graphics::rect(xleft   = c( 0.5,  1.5, 4.5,  7.5),
+               ybottom = c(11.5,  7.5, 4.5,  0.5),
+               xright  = c( 1.5,  4.5, 7.5, 11.5),
+               ytop    = c(10.5, 10.5, 7.5,  4.5),
+               lwd = 2, xpd = NA)
+text(6, -0.2, xpd = NA, 
+     "Significance codes:  ***: 0.001;  **: 0.01;  *: 0.05")
+
+
+# MSW-MSS (WATER-SEDIMENTS) COMPARISON ANALYSIS -------------------
+# using already generated network from spiec-easi 
+
+assoMat_MSW <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seMSW_16S_18S_ITS), mode = "ave")
+assoMat_MSS <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seMSS_16S_18S_ITS), mode = "ave")
+
+assoMat_MSW <- as.matrix(assoMat_MSW)
+assoMat_MSS <- as.matrix(assoMat_MSS)
+
+# Get taxa names
+taxnames_MSW_MSS <- c(taxa_names(ps_f_MSW16S_18S_ITS),
+                      taxa_names(ps_f_MSS16S_18S_ITS))
+
+
+colnames(assoMat_MSW) <- rownames(assoMat_MSW) <- taxnames_MSW_MSS
+diag(assoMat_MSW) <- 1 
+colnames(assoMat_MSS) <- rownames(assoMat_MSS) <- taxnames_MSW_MSS
+diag(assoMat_MSS) <- 1 
+
+
+# NetCoMi workflow 
+# Network construction (pass association matrices to netConstruct)
+# - sparsMethod must be set to "none" because sparsification is already included in SpiecEasi
+netMSW_MSS <- netConstruct(data = assoMat_MSW, 
+                           data2 = assoMat_MSS, 
+                           dataType = "condDependence", 
+                           sparsMethod = "none")
+
+# Network analysis
+netprops_MSW_MSS <- netAnalyze(netMSW_MSS, 
+                               title = c("USW","USS"), 
+                               centrLCC = FALSE,
+                               avDissIgnoreInf = TRUE,
+                               sPathNorm = FALSE,
+                               clustMethod = "cluster_fast_greedy",
+                               hubPar = c("degree", "eigenvector"),
+                               hubQuant = 0.9,
+                               lnormFit = TRUE,
+                               normDeg = FALSE,
+                               normBetw = FALSE,
+                               normClose = FALSE,
+                               normEigen = FALSE) 
+
+
+# DSW-DSS (WATER-SEDIMENTS) COMPARISON ANALYSIS -------------------
+# using already generated network from spiec-easi 
+
+assoMat_DSW <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seDSW_16S_18S_ITS), mode = "ave")
+assoMat_DSS <- SpiecEasi::symBeta(SpiecEasi::getOptBeta(
+  seDSS_16S_18S_ITS), mode = "ave")
+
+assoMat_DSW <- as.matrix(assoMat_DSW)
+assoMat_DSS <- as.matrix(assoMat_DSS)
+
+# Get taxa names
+taxnames_DSW_DSS <- c(taxa_names(ps_f_DSW16S_18S_ITS),
+                      taxa_names(ps_f_DSS16S_18S_ITS))
+
+colnames(assoMat_DSW) <- rownames(assoMat_DSW) <- taxnames_DSW_DSS
+diag(assoMat_DSW) <- 1 
+colnames(assoMat_DSS) <- rownames(assoMat_DSS) <- taxnames_DSW_DSS
+diag(assoMat_DSS) <- 1 
+
+
+# NetCoMi workflow 
+# Network construction (pass association matrices to netConstruct)
+# - sparsMethod must be set to "none" because sparsification is already included in SpiecEasi
+netDSW_DSS <- netConstruct(data = assoMat_DSW, 
+                           data2 = assoMat_DSS, 
+                           dataType = "condDependence", 
+                           sparsMethod = "none")
+
+# Network analysis
+netprops_DSW_DSS <- netAnalyze(netDSW_DSS,
+                               centrLCC = FALSE,
+                               avDissIgnoreInf = TRUE,
+                               sPathNorm = FALSE,
+                               clustMethod = "cluster_fast_greedy",
+                               hubPar = c("degree", "eigenvector"),
+                               hubQuant = 0.9,
+                               lnormFit = TRUE,
+                               normDeg = FALSE,
+                               normBetw = FALSE,
+                               normClose = FALSE,
+                               normEigen = FALSE) 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
